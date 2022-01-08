@@ -36,19 +36,6 @@ class SignatureManager(object):
         self.verified += int(result)
         return result
 
-    def giveNodeSig(self, private_key, transaction):
-        message = encode_defunct(text=json.dumps({"data":transaction["data"], "sig": transaction["sig"]}).replace(" ", ""))
-        _signature = w3.eth.account.sign_message(message, private_key=private_key).signature.hex()
-        signer = w3.eth.account.recover_message(message, signature=_signature)
-        transaction["nodeSigs"][signer] = _signature
-        return transaction
-
-    def checkNodeSig(self, node_pub_key, transaction):
-        pub = w3.toChecksumAddress(node_pub_key)
-        message = encode_defunct(text=json.dumps({"data":transaction["data"], "sig": transaction["sig"]}).replace(" ", ""))
-        signer = w3.eth.account.recover_message(message, signature=transaction["nodeSigs"].get(pub))
-        return (signer == pub)
-
 class Message(object):
     def __init__(self, _from, _to, msg):
         self.sender = _from
@@ -224,7 +211,6 @@ class Node(object):
             playable = self.canBePlayed(tx)
             print(f"Result of canBePlayed: {playable}")
             if (not self.transactions.get(tx["hash"]) and playable[0]):
-                tx = self.sigmanager.giveNodeSig(config["nodePrivKey"], tx)
                 self.transactions[tx["hash"]] = tx
                 self.txsOrder.append(tx["hash"])
                 self.state.playTransaction(tx, True)
@@ -355,7 +341,7 @@ class TxBuilder(object):
         from_ = w3.toChecksumAddress(_from)
         to_ = w3.toChecksumAddress(_to)
         data = {"from": from_, "to": to_, "tokens": tokens, "parent": self.state.getLastSentTx(_from), "type": 0}
-        tx = {"data": data, "nodeSigs": {}}
+        tx = {"data": data}
         tx = self.signer.signTransaction(priv_key, tx)
         print(tx)
         playable = self.node.canBePlayed(tx)
