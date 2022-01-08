@@ -2,6 +2,7 @@ import requests, time, json, threading, hashlib, flask
 global config
 from web3.auto import w3
 from eth_account.messages import encode_defunct
+from flask_cors import CORS
 
 transactions = {}
 config = {"dataBaseFile": "testmycrypto.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["http://149.28.231.249:5005/"], "InitTxID": "none"}
@@ -376,8 +377,7 @@ thread = threading.Thread(target=node.networkBackgroundRoutine)
 # HTTP INBOUND PARAMS
 app = flask.Flask(__name__)
 app.config["DEBUG"] = False
-
-
+CORS(app)
 
 
 @app.route("/ping")
@@ -504,6 +504,5 @@ def shareMyPeers():
 @app.route("/net/getOnlinePeers")
 def shareOnlinePeers():
     return flask.jsonify(result=node.goodPeers, success=True)
-
 
 app.run(host="0.0.0.0", port=5005)
