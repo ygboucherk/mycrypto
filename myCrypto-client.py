@@ -5,7 +5,7 @@ from eth_account.messages import encode_defunct
 from flask_cors import CORS
 
 transactions = {}
-config = {"dataBaseFile": "testmycrypto.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["http://149.28.231.249:5005/"], "InitTxID": "none"}
+config = {"dataBaseFile": "testmycrypto.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["http://136.244.119.124:5005", "http://149.28.231.249:5005/"], "InitTxID": "none"}
 
 
 class SignatureManager(object):
@@ -194,7 +194,6 @@ class Node(object):
             print("Error loading DB, starting from zero :/")
         for txHash in self.txsOrder:
             tx = self.transactions[txHash]
-            print(f"Result of canBePlayed : {self.canBePlayed(tx)}")
             self.state.playTransaction(tx, False)
             self.propagateTransactions([tx])
         self.saveDB()
@@ -209,14 +208,14 @@ class Node(object):
         _counter = 0
         for tx in txs:
             playable = self.canBePlayed(tx)
-            print(f"Result of canBePlayed: {playable}")
             if (not self.transactions.get(tx["hash"]) and playable[0]):
                 self.transactions[tx["hash"]] = tx
                 self.txsOrder.append(tx["hash"])
                 self.state.playTransaction(tx, True)
                 _counter += 1
                 print(f"Successfully saved transaction {tx['hash']}")
-        print(f"Successfully saved {_counter} transactions !")
+        if _counter > 0:
+            print(f"Successfully saved {_counter} transactions !")
         self.saveDB()
 
     def saveDB(self):
@@ -287,7 +286,6 @@ class Node(object):
                 for child in _childs:
                     if not (child in children):
                         parent = self.pullSetOfTxs([child])[0]["data"]["parent"]
-                        print(parent)
                         if (parent == txid):
                             children.append(child)
                 break
@@ -304,6 +302,7 @@ class Node(object):
             self.execTxAndRetryWithChilds(txid)
     
     def syncDB(self):
+        self.checkGuys()
         toCheck = self.pullChildsOfATx(self.config["InitTxID"])
         print(toCheck)
         for txid in toCheck:
@@ -324,7 +323,7 @@ class Node(object):
         while True:
             print("Refreshing transactions from other nodes")
             self.checkGuys()
-            self.pullTransactions()
+            self.syncDB()
             time.sleep(60)
 
 
@@ -353,7 +352,7 @@ node = Node(config)
 print(node.config)
 maker = TxBuilder(node)
 thread = threading.Thread(target=node.networkBackgroundRoutine)
-
+thread.start()
 
 
 
