@@ -382,12 +382,12 @@ app.config["DEBUG"] = False
 
 @app.route("/ping")
 def getping():
-    return json.dumps({"result": "pong", "success": True})
+    return json.dumps({"result": "Pong !", "success": True})
 
 # HTTP GENERAL GETTERS - pulled from `Node` class
 @app.route("/get/transactions", methods=["GET"]) # get all transactions in node
 def getTransactions():
-    return json.dumps({"result": node.transactions, "success": True})
+    return flask.jsonify(result=node.transactions, success=True)
 
 @app.route("/get/nFirstTxs/<n>", methods=["GET"]) # GET N first transactions
 def nFirstTxs(n):
@@ -395,7 +395,7 @@ def nFirstTxs(n):
     txs = []
     for txid in txsOrder[0,n-1]:
         txs.append(node.transactions.get(txid))
-    return json.dumps({"result": txs, "success": True})
+    return flask.jsonify(result=txs, success=True)
     
 @app.route("/get/nLastTxs/<n>", methods=["GET"]) # GET N last transactions
 def nLastTxs(n):
@@ -404,7 +404,8 @@ def nLastTxs(n):
     txs = []
     for txid in txsOrder[_n,len(node.txsOrder)]:
         txs.append(node.transactions.get(txid))
-    return json.dumps({"result": txs, "success": True})
+        
+    return flask.jsonify(result=txs, success=True)
 
 @app.route("/get/txsByBounds/<upperBound>/<lowerBound>", methods=["GET"]) # get txs from upperBound to lowerBound (in index)
 def getTxsByBound(upperBound, lowerBound):
@@ -412,23 +413,23 @@ def getTxsByBound(upperBound, lowerBound):
     lowerBound = max(lowerBound, 0)
     for txid in txsOrder[lowerBound,upperBound]:
         txs.append(node.transactions.get(txid))
-    return json.dumps({"result": txs, "success": True})
+    return flask.jsonify(result=txs, success=True)
 
 @app.route("/get/txIndex/<index>")
 def getTxIndex(txid):
     _index = node.state.txIndex.get(tx)
     if _index:
-        return json.dumps({"result": _index, "success": True})
+        return flask.jsonify(result=_index, success=True)
     else:
-        return json.dumps({"message": "TX_NOT_FOUND", "success": False})
+        return (flask.jsonify(message="TX_NOT_FOUND", success=False), 404)
 
 @app.route("/get/transaction/<txhash>", methods=["GET"]) # get specific tx by hash
 def getTransactionByHash(txhash):
     tx = node.transactions.get(txhash)
     if (tx):
-        return json.dumps({"result": tx, "success": True})
+        return flask.jsonify(result=tx, success=True)
     else:
-        return json.dumps({"message": "TX_NOT_FOUND", "success": False})
+        return (flask.jsonify(message="TX_NOT_FOUND", success=False), 404)
 
 @app.route("/get/transactions/<txhashes>", methods=["GET"]) # get specific tx by hash
 def getMultipleTransactionsByHashes(txhashes):
@@ -440,11 +441,11 @@ def getMultipleTransactionsByHashes(txhashes):
         if (tx):
             txs.append(tx)
             oneSucceeded = True
-    return json.dumps({"result": txs, "success": oneSucceeded})
+    return flask.jsonify(result=txs, success=oneSucceeded)
 
 @app.route("/get/numberOfReferencedTxs") # get number of referenced transactions
 def numberOfTxs():
-    return json.dumps({"result": len(node.txsOrder), "success": True})
+    return flask.jsonify(result=len(node.txsOrder), success=True)
 
 
 
@@ -455,21 +456,21 @@ def accountInfo(account):
     balance = node.state.balances.get(_address)
     transactions = node.state.transactions.get(_address)
     bio = node.state.accountBios.get(_address)
-    return {"result": {"balance": (balance or 0), "transactions": transactions, "bio": bio}, "success": True}
+    return flask.jsonify(result={"balance": (balance or 0), "transactions": transactions, "bio": bio}, success= True)
 
 @app.route("/accounts/accountBalance/<account>")
 def accountBalance(account):
     _address = w3.toChecksumAddress(account)
     balance = node.state.balances.get(_address)
-    return {"result": {"balance": (balance or 0)}, "success": True}
+    return flask.jsonify(result={"balance": (balance or 0)}, success=True)
 
 @app.route("/accounts/txChilds/<tx>")
 def txParent(tx):
-    _parent = node.state.txChilds.get(tx)
-    if _parent:
-        return {"result": _parent, "success": True}
+    _kids = node.state.txChilds.get(tx)
+    if _kids:
+        return flask.jsonify(result=_kids, success=True)
     else:
-        return {"message": "TX_NOT_FOUND", "success": False}
+        return flask.jsonify(message="TX_NOT_FOUND", success=False)
 
 # SEND TRANSACTION STUFF (redirected to `Node` class)
 @app.route("/send/rawtransaction/") # allows sending a raw (signed) transaction
@@ -484,7 +485,7 @@ def sendRawTransactions():
         txs.append(tx)
         hashes.append(tx["hash"])
     node.checkTxs(txs)
-    return json.dumps({"result": hashes, "success": True})
+    return flask.jsonify(result=hashes, success=True)
 
 @app.route("/send/buildtransaction/")
 def buildTransactionAndSend():
@@ -493,16 +494,16 @@ def buildTransactionAndSend():
     _to = str(flask.request.args.get('to', None))
     tokens = str(flask.request.args.get('value', None))
     result = buildTransaction(self, privkey, _from, _to, tokens)[0]
-    return json.dumps({"result": result[0], "success": result[1]})
+    return flask.jsonify(result=result[0], success=result[1])
 
 # SHARE PEERS (from `Node` class)
 @app.route("/net/getPeers")
 def shareMyPeers():
-    return {"result": node.peers, "success": True}
+    return flask.jsonify(result=node.peers, success=True)
     
 @app.route("/net/getOnlinePeers")
 def shareOnlinePeers():
-    return {"result": node.goodPeers, "success": True}
+    return flask.jsonify(result=node.goodPeers, success=True)
 
 
 app.run(host="0.0.0.0", port=5005)
