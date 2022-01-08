@@ -3,65 +3,57 @@
 	<head>
 		<title>Page showing balance lol</title>
 		<script src="https://cdn.jsdelivr.net/npm/web3@latest/dist/web3.min.js"></script>
-		<script>
-			// web3 = new Web3(window.ethereum)
-			// window.ethereum.enable()
-		
-			function convertFromHex(hex) {
-				var hex = hex.toString();//force conversion
-				var str = '';
-				for (var i = 0; i < hex.length; i += 2)
-					str += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
-				return str;
-			}
-
-			function convertToHex(str) {
-				var hex = '';
-				for(var i=0;i<str.length;i++) {
-					hex += ''+str.charCodeAt(i).toString(16);
-				}
-				return hex;
-			}
-			
-			async function getAccountInfo(account) {
-				return (await (await fetch(`http://136.244.119.124:5005/accounts/accountInfo/${account}`)).json()).result;
-			}
-			
-			async function getHeadTx(account) {
-				let accountInfo = (await getAccountInfo(account));
-				return accountInfo.transactions[accountInfo.transactions.length-1];
-			}
-
-			async function buildTransaction(web3Instance, to, tokens, bio) {
-				account = (await web3Instance.eth.getAccounts())[0];
-				parent = (await getHeadTx(account));
-				data = {"from":account, "to":web3Instance.utils.toChecksumAddress(to), "tokens":tokens, "parent": parent, "type": 0};
-				strdata = JSON.stringify(data);
-				hash = web3Instance.utils.soliditySha3(strdata);
-				signature = await web3Instance.eth.personal.sign(strdata, account);
-				tx = {"data": data, "sig": signature, "hash": hash, "nodeSigs": {}};
-				toSend = convertToHex(JSON.stringify(tx));
-				return toSend;
-			}
-			
-			async function refreshStatus(web3Instance) {
-				let accountInfo = await getAccountInfo((await web3Instance.eth.getAccounts())[0]);
-				let balance = accountInfo.balance;
-				document.getElementById("balancelabel").innerHTML = balance
-			}
-		</script>
 	</head>
 	<body>
 		<h1>A wallet for my crypto lol</h1>
-		Balance : <span id="balancelabel">0</span>
-		<script>
-			async function manager() {
-				web3 = new Web3(window.ethereum);
-				await window.ethereum.enable();
-				await refreshStatus(web3);
-			}
-			
-			manager();
-		</script>
+		<button onclick="init()">Connect wallet</button>
+		<p>
+			<div>Address : <span id="addresslabel">Connecting wallet</span></div>
+			<div>Balance : <span id="balancelabel">0</span></div>
+		</p>
+		<p>
+			<div>
+				<input type="number" id="amounttosendinput" placeholder="Amount to send"></input>
+				<input type="text" id="recipientinput" placeholder="Address of recipient"></input>
+			</div>
+			<button onclick="transfer()">Send funds</button>
+		</p>
+		
+		
 	</body>
+	<script src="browserTransactionBuilder.js"></script>
+	<script>
+		async function refreshStatus(web3Instance) {
+				let _account = (await web3Instance.eth.getAccounts())[0];
+				let accountInfo = await getAccountInfo(_account);
+				let balance = accountInfo.balance;
+				document.getElementById("addresslabel").innerHTML = _account;
+				document.getElementById("balancelabel").innerHTML = balance;
+		}
+		
+		async function init() {
+			web3 = new Web3(window.ethereum);
+			await window.ethereum.request({ method: 'eth_requestAccounts' })
+			await refreshStatus(web3);
+		}
+		// init();
+		
+		
+		async function transfer() {
+			_to = document.getElementById("recipientinput").value;
+			_tokens = document.getElementById("amounttosendinput").value;
+			let _account = (await web3.eth.getAccounts())[0];
+			if (!web3.utils.isAddress(_to)) {
+				return (false, "INVALID_RECIPIENT");
+			}
+			if ((await getAccountInfo(_account)).balance < _tokens) {
+				return (false, "INSUFFICIENT_BALANCE");
+			}
+			let signedTx = await buildTransaction(web3, _to, _tokens);
+			console.log(signedTx);
+			let result = await sendTransaction(signedTx);
+			refreshStatus(web3);
+			return (true, result[0]);
+		}
+	</script>
 </html>
