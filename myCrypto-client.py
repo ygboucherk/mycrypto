@@ -31,7 +31,6 @@ class SignatureManager(object):
         signer = w3.eth.account.recover_message(message, signature=transaction["sig"])
         sender = w3.toChecksumAddress(json.loads(transaction["data"])["from"])
         result = ((signer == sender) and (_hash == _hashInTransaction))
-        print(f"signer: {signer}\nsender: {sender}\ncalculated hash: {_hash}\nhash in tx: {_hashInTransaction}")
         self.verified += int(result)
         return result
 
@@ -69,7 +68,8 @@ class State(object):
     def checkParent(self, tx, isExecuting):
         if (((json.loads(tx["data"]).get("parent")) != self.getLastSentTx(_from)) and (self.getLastSentTx(_from) != None)):
             if isExecuting:
-                print(f"Error executing tx {tx['hash']}, error: PARENT UNMATCHED")
+                pass
+#                print(f"Error executing tx {tx['hash']}, error: PARENT UNMATCHED")
             return (False, "Parent unmatched")
 
     def willTransactionSucceed(self, tx):
@@ -89,11 +89,9 @@ class State(object):
     def executeTransfer(self, tx, _from, _to, _tokens, showMessage):
         txData = json.loads(tx["data"])
         if (_tokens > self.balances.get(_from)):
-            print(f"Error executing tx {tx['hash']}, error: BALANCE TOO LOW")
             return (False, "Too low balance")
         lastTx = self.getLastUserTx(_from)
         if ((txData.get("parent")) != lastTx):
-            print(f"Error executing tx {tx['hash']}, error: PARENT UNMATCHED")
             return (False, "Parent unmatched")
             
         
@@ -207,7 +205,7 @@ class Node(object):
         # print("Pulling DUCO txs...")
         # txs = requests.get(self.config["endpoint"]).json()["result"]
         # print("Successfully pulled transactions !")
-        print("Saving transactions to DB...")
+#        print("Saving transactions to DB...")
         _counter = 0
         for tx in txs:
             playable = self.canBePlayed(tx)
@@ -228,11 +226,11 @@ class Node(object):
         file.close()
 
     def loadDB(self):
-        print(self.config["dataBaseFile"])
+#        print(self.config["dataBaseFile"])
         file = open(self.config["dataBaseFile"], "r")
         file.seek(0)
         db = json.load(file)
-        print(db)
+#        print(db)
         self.transactions = db["transactions"]
         self.txsOrder = db["txsOrder"]
         file.close()
@@ -293,9 +291,9 @@ class Node(object):
         return children
     
     def execTxAndRetryWithChilds(self, txid):
-        print(f"Loading tx {txid}")
+#        print(f"Loading tx {txid}")
         tx = self.pullSetOfTxs([txid])
-        print(tx)
+#        print(tx)
         self.checkTxs(tx)
         _childs = self.pullChildsOfATx(txid)
         for txid in _childs:
@@ -304,7 +302,7 @@ class Node(object):
     def syncDB(self):
         self.checkGuys()
         toCheck = self.pullChildsOfATx(self.config["InitTxID"])
-        print(toCheck)
+#        print(toCheck)
         for txid in toCheck:
             _childs = self.execTxAndRetryWithChilds(txid)
     
@@ -321,7 +319,7 @@ class Node(object):
     
     def networkBackgroundRoutine(self):
         while True:
-            print("Refreshing transactions from other nodes")
+#            print("Refreshing transactions from other nodes")
             self.checkGuys()
             self.syncDB()
             time.sleep(60)
@@ -339,10 +337,10 @@ class TxBuilder(object):
     def buildTransaction(self, priv_key, _from, _to, tokens):
         from_ = w3.toChecksumAddress(_from)
         to_ = w3.toChecksumAddress(_to)
-        data = {"from": from_, "to": to_, "tokens": tokens, "parent": self.state.getLastSentTx(_from), "type": 0}
+        data = json.dumps({"from": from_, "to": to_, "tokens": tokens, "parent": self.state.getLastSentTx(_from), "type": 0})
         tx = {"data": data}
         tx = self.signer.signTransaction(priv_key, tx)
-        print(tx)
+#        print(tx)
         playable = self.node.canBePlayed(tx)
         self.checkTxs([tx])
         return (tx, playable)
@@ -471,6 +469,8 @@ def sendRawTransactions():
     for rawtx in rawtxs:
         tx = json.loads(bytes.fromhex(rawtx).decode())
         print(tx)
+        if (type(tx["data"]) == dict):
+            tx["data"] = json.dumps(tx["data"]).replace(" ", "")
         txs.append(tx)
         hashes.append(tx["hash"])
     node.checkTxs(txs)
