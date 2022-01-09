@@ -40,6 +40,19 @@ class Message(object):
         self.recipient = _to
         self.msg = msg
 
+
+class Transaction(object):
+    def __init__(self, tx):
+        txData = json.loads(tx["data"])
+        self.sender = w3.toChecksumAddress(txData.get("from"))
+        self.recipient = w3.toChecksumAddress(txData.get("to"))
+        self.value = float(txData.get("tokens"))
+        self.bio = txData.get("bio")
+        self.parent = txData.get("parent")
+        self.message = txData.get("message")
+        self.txid = tx.get("hash")
+        self.txtype = (txData.get("type") or 0)
+
 class State(object):
     def __init__(self, initTxID):
         self.balances = {"0x611B74e0dFA8085a54e8707c573A588138c9dDba": 10, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44": 100}
@@ -65,70 +78,74 @@ class State(object):
         if not self.accountBios.get(user):
             self.accountBios[user] = ""
 
-    def checkParent(self, tx, isExecuting):
-        if (((json.loads(tx["data"]).get("parent")) != self.getLastSentTx(_from)) and (self.getLastSentTx(_from) != None)):
-            if isExecuting:
-                pass
-#                print(f"Error executing tx {tx['hash']}, error: PARENT UNMATCHED")
-            return (False, "Parent unmatched")
 
-    def willTransactionSucceed(self, tx):
-        txData = json.loads(tx["data"])
-        _from = w3.toChecksumAddress(txData["from"])
-        _to = w3.toChecksumAddress(txData["from"])
-        self.ensureExistence(_from)
-        self.ensureExistence(_to)
-        _tokens = int(txData["tokens"])
-        if (_tokens > self.balances.get(_from)):
-            return (False, "Too low balance")
-        lastTx = self.getLastUserTx(_from)
-        if ((txData.get("parent")) != lastTx):
-            return (False, "Parent unmatched")
-        return (True, "It'll succeed")
 
-    def executeTransfer(self, tx, _from, _to, _tokens, showMessage):
-        txData = json.loads(tx["data"])
-        if (_tokens > self.balances.get(_from)):
+    def checkParent(self, tx):
+        lastTx = self.getLastUserTx(tx.sender)
+        if (tx.parent != lastTx):
+            return False
+        return True
+
+    def checkBalance(self, tx):
+        return tx.value >= (self.balances.get(tx.sender) or 0)
+
+
+
+    def estimateTransferSuccess(self, _tx):
+        self.ensureExistence(_tx.sender)
+        self.ensureExistence(_tx.recipient)
+        if self.checkBalance(_tx):
             return (False, "Too low balance")
-        lastTx = self.getLastUserTx(_from)
-        if ((txData.get("parent")) != lastTx):
+        if not self.checkParent(_tx):
             return (False, "Parent unmatched")
             
-        
-        self.txChilds[tx["hash"]] = []
-        self.txChilds[txData.get("parent")].append(tx["hash"])
-        self.txIndex[tx["hash"]] = self.lastTxIndex
+        return (True, "It'll succeed")
+
+    def willTransactionSucceed(self, tx):
+        _tx = Transaction(tx)
+        return self.estimateTransferSuccess(_tx)
+
+    def executeTransfer(self, tx, showMessage):
+        willSucceed = self.estimateTransferSuccess(tx)
+        if not willSucceed[0]:
+            return willSucceed
+        self.txChilds[tx.txid] = []
+        self.txChilds[tx.parent].append(tx.txid)
+        self.txIndex[tx.txid] = self.lastTxIndex
         self.lastTxIndex += 1
         
         
         
-        self.balances[_from] -= _tokens
-        self.balances[_to] += _tokens
-        self.transactions[_from].append(tx["hash"])
-        self.sent[_from].append(tx["hash"])
-        self.transactions[_to].append(tx["hash"])
-        self.received[_to].append(tx["hash"])
+        self.balances[tx.sender] -= tx.value
+        self.balances[tx.recipient] += tx.value
+        
+        
+        self.transactions[tx.sender].append(tx.txid)
+        if (tx.sender != tx.recipient):
+            self.transactions[tx.recipient].append(tx.txid)
+        
+        self.sent[tx.sender].append(tx.txid)
+        self.received[tx.recipient].append(tx.txid)
         if (showMessage):
-            print(f"Transfer executed !\nAmount transferred : {_tokens}\nFrom: {_from}\nTo: {_to}")
+            print(f"Transfer executed !\nAmount transferred : {tx.value}\nFrom: {tx.sender}\nTo: {tx.recipient}")
         return (True, "Transfer succeeded")
 
     def postMessage(self, msg, showMessage):
         pass # still under development
 
     def playTransaction(self, tx, showMessage):
-        txData = json.loads(tx["data"])
-        _from = w3.toChecksumAddress(txData["from"])
-        _to = w3.toChecksumAddress(txData["to"])
-        self.ensureExistence(_from)
-        self.ensureExistence(_to)
-        _tokens = int(txData["tokens"])
-        transferFeedback = self.executeTransfer(tx, _from, _to, _tokens, showMessage)
-        msg = txData.get("message")
-        accountBio = txData.get("bio")
-        if (accountBio):
-            self.accountBios[_from] = accountBio.replace("%20", " ")
-        if msg:
-            self.leaveMessage(_from, _to, msg, showMessage)
+        _tx = Transaction(tx)
+        
+        if _tx.txtype == 0:
+            transferFeedback = self.executeTransfer(_tx, showMessage)
+        
+        
+        
+        
+        if (_tx.bio):
+            self.accountBios[_tx.sender] = _tx.bio.replace("%20", " ")
+        # if _tx.message:
+            # self.leaveMessage(_from, _to, msg, showMessage)
         return transferFeedback
 
     def getLastUserTx(self, _user):
@@ -137,7 +154,7 @@ class State(object):
         if (len(self.transactions[user]))>0:
             return self.transactions[user][len(self.transactions[user])-1]
         else:
-            return None
+            return self.initTxID
             
     def getLastSentTx(self, _user):
         user = w3.toChecksumAddress(_user)
@@ -145,7 +162,7 @@ class State(object):
         if (len(self.sent[user]))>0:
             return self.sent[user][len(self.sent[user])-1]
         else:
-            return None
+            return self.initTxID
             
     def getLastReceivedTx(self, _user):
         user = w3.toChecksumAddress(_user)
