@@ -5,7 +5,7 @@ from eth_account.messages import encode_defunct
 from flask_cors import CORS
 
 transactions = {}
-config = {"dataBaseFile": "testmycrypto.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["http://136.244.119.124:5005", "http://149.28.231.249:5005/"], "InitTxID": "none"}
+config = {"dataBaseFile": "testmycrypto.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["http://136.244.119.124:5005/"], "InitTxID": "none"}
 
 
 class SignatureManager(object):
@@ -14,23 +14,22 @@ class SignatureManager(object):
         self.signed = 0
     
     def signTransaction(self, private_key, transaction):
-        message = encode_defunct(text=json.dumps(transaction["data"]).replace(" ", ""))
-        transaction["hash"] = "0x" + w3.soliditySha3(["string"], [json.dumps(transaction["data"]).replace(" ", "")]).hex()
+        message = encode_defunct(text=transaction["data"])
+        transaction["hash"] = w3.soliditySha3(["string"], [transaction["data"]]).hex()
         _signature = w3.eth.account.sign_message(message, private_key=private_key).signature.hex()
         signer = w3.eth.account.recover_message(message, signature=_signature)
-        sender = w3.toChecksumAddress(transaction["data"]["from"])
+        sender = w3.toChecksumAddress(json.loads(transaction["data"])["from"])
         if (signer == sender):
             transaction["sig"] = _signature
             self.signed += 1
         return transaction
         
     def verifyTransaction(self, transaction):
-        print(json.dumps(transaction["data"]))
-        message = encode_defunct(text=json.dumps(transaction["data"]).replace(" ", ""))
-        _hash = w3.soliditySha3(["string"], [json.dumps(transaction["data"]).replace(" ", "")]).hex()
+        message = encode_defunct(text=transaction["data"])
+        _hash = w3.soliditySha3(["string"], [transaction["data"]]).hex()
         _hashInTransaction = transaction["hash"]
         signer = w3.eth.account.recover_message(message, signature=transaction["sig"])
-        sender = w3.toChecksumAddress(transaction["data"]["from"])
+        sender = w3.toChecksumAddress(json.loads(transaction["data"])["from"])
         result = ((signer == sender) and (_hash == _hashInTransaction))
         print(f"signer: {signer}\nsender: {sender}\ncalculated hash: {_hash}\nhash in tx: {_hashInTransaction}")
         self.verified += int(result)
@@ -68,36 +67,38 @@ class State(object):
             self.accountBios[user] = ""
 
     def checkParent(self, tx, isExecuting):
-        if (((tx["data"].get("parent")) != self.getLastSentTx(_from)) and (self.getLastSentTx(_from) != None)):
+        if (((json.loads(tx["data"]).get("parent")) != self.getLastSentTx(_from)) and (self.getLastSentTx(_from) != None)):
             if isExecuting:
                 print(f"Error executing tx {tx['hash']}, error: PARENT UNMATCHED")
             return (False, "Parent unmatched")
 
     def willTransactionSucceed(self, tx):
-        _from = w3.toChecksumAddress(tx["data"]["from"])
-        _to = w3.toChecksumAddress(tx["data"]["from"])
+        txData = json.loads(tx["data"])
+        _from = w3.toChecksumAddress(txData["from"])
+        _to = w3.toChecksumAddress(txData["from"])
         self.ensureExistence(_from)
         self.ensureExistence(_to)
-        _tokens = int(tx["data"]["tokens"])
+        _tokens = int(txData["tokens"])
         if (_tokens > self.balances.get(_from)):
             return (False, "Too low balance")
         lastTx = self.getLastUserTx(_from)
-        if ((tx["data"].get("parent")) != lastTx):
+        if ((txData.get("parent")) != lastTx):
             return (False, "Parent unmatched")
         return (True, "It'll succeed")
 
     def executeTransfer(self, tx, _from, _to, _tokens, showMessage):
+        txData = json.loads(tx["data"])
         if (_tokens > self.balances.get(_from)):
             print(f"Error executing tx {tx['hash']}, error: BALANCE TOO LOW")
             return (False, "Too low balance")
         lastTx = self.getLastUserTx(_from)
-        if ((tx["data"].get("parent")) != lastTx):
+        if ((txData.get("parent")) != lastTx):
             print(f"Error executing tx {tx['hash']}, error: PARENT UNMATCHED")
             return (False, "Parent unmatched")
             
         
         self.txChilds[tx["hash"]] = []
-        self.txChilds[tx["data"].get("parent")].append(tx["hash"])
+        self.txChilds[txData.get("parent")].append(tx["hash"])
         self.txIndex[tx["hash"]] = self.lastTxIndex
         self.lastTxIndex += 1
         
@@ -117,14 +118,15 @@ class State(object):
         pass # still under development
 
     def playTransaction(self, tx, showMessage):
-        _from = w3.toChecksumAddress(tx["data"]["from"])
-        _to = w3.toChecksumAddress(tx["data"]["to"])
+        txData = json.loads(tx["data"])
+        _from = w3.toChecksumAddress(txData["from"])
+        _to = w3.toChecksumAddress(txData["to"])
         self.ensureExistence(_from)
         self.ensureExistence(_to)
-        _tokens = int(tx["data"]["tokens"])
+        _tokens = int(txData["tokens"])
         transferFeedback = self.executeTransfer(tx, _from, _to, _tokens, showMessage)
-        msg = tx["data"].get("message")
-        accountBio = tx["data"].get("bio")
+        msg = txData.get("message")
+        accountBio = txData.get("bio")
         if (accountBio):
             self.accountBios[_from] = accountBio.replace("%20", " ")
         if msg:
@@ -177,8 +179,8 @@ class Node(object):
         sigVerified = False
         playableByState = False
         sigVerified = self.sigmanager.verifyTransaction(tx)
-        playableByState = self.state.willTransactionSucceed(tx)[0]
-        return (sigVerified and playableByState, sigVerified, playableByState)
+        playableByState = self.state.willTransactionSucceed(tx)
+        return (sigVerified and playableByState[0], sigVerified, playableByState)
         
 
     def addTxToMempool(self, tx):
@@ -192,6 +194,7 @@ class Node(object):
             print("Successfully loaded node DB !")
         except:
             print("Error loading DB, starting from zero :/")
+        self.upgradeTxs()
         for txHash in self.txsOrder:
             tx = self.transactions[txHash]
             self.state.playTransaction(tx, False)
@@ -239,15 +242,11 @@ class Node(object):
             # self.checkTxs()
             # self.saveDB()
             # time.sleep(float(self.config["delay"]))
-            
-    def txsForUser(self, user):
-        txs = self.transactions
-        _txs = []
-        for key, value in txs.items():
-            if (value["data"]["from"] == user) or (value["data"]["to"] == user):
-                _txs.append(value)
-        return _txs
     
+    def upgradeTxs(self):
+        for txid in self.txsOrder:
+            if type(self.transactions[txid]["data"]) == dict:
+                self.transactions[txid]["data"] = json.dumps(self.transactions[txid]["data"]).replace(" ", "")
     
     
     
@@ -273,7 +272,7 @@ class Node(object):
                         txs.append(tx)
                         break
                     except:
-                        pass
+                        raise
             else:
                 txs.append(localTx)
         return txs
@@ -285,7 +284,7 @@ class Node(object):
                 _childs = requests.get(f"{peer}/accounts/txChilds/{txid}").json()["result"]
                 for child in _childs:
                     if not (child in children):
-                        parent = self.pullSetOfTxs([child])[0]["data"]["parent"]
+                        parent = json.loads(self.pullSetOfTxs([child])[0]["data"])["parent"]
                         if (parent == txid):
                             children.append(child)
                 break
@@ -296,6 +295,7 @@ class Node(object):
     def execTxAndRetryWithChilds(self, txid):
         print(f"Loading tx {txid}")
         tx = self.pullSetOfTxs([txid])
+        print(tx)
         self.checkTxs(tx)
         _childs = self.pullChildsOfATx(txid)
         for txid in _childs:
@@ -364,6 +364,10 @@ app = flask.Flask(__name__)
 app.config["DEBUG"] = False
 CORS(app)
 
+
+@app.route("/")
+def basicInfoHttp():
+    return "*ah shit I shall still name it* cryptocurrency node running on port 5005"
 
 @app.route("/ping")
 def getping():
