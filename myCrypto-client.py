@@ -40,7 +40,6 @@ class Message(object):
         self.recipient = _to
         self.msg = msg
 
-
 class Transaction(object):
     def __init__(self, tx):
         txData = json.loads(tx["data"])
@@ -52,6 +51,78 @@ class Transaction(object):
         self.message = txData.get("message")
         self.txid = tx.get("hash")
         self.txtype = (txData.get("type") or 0)
+        self.PoW = ""
+        self.endTimeStamp = 0
+
+
+
+class Epoch(object):
+    def __init__(self, parent, difficulty, timestamp):
+        self.data = json.loads(epochDetails)
+        self.transactions = []
+        self.miner = ""
+        self.beginTimeStamp = timestamp
+        self.parent = parent
+        self.nonce = 0
+        self.difficulty = difficulty
+        self.proof = self.proofOfWork()
+        self.finished = False
+    
+    
+    def addTransaction(self, tx):
+        if not self.finished:
+            self.transactions.append(tx)
+    
+    def merkleRoot(self):
+        txsRoot = w3.soliditySha3(self.transactions.join(","))
+        return  w3.soliditySha3(f"{txsRoot}:{self.parent}")
+
+    def proofOfWork(self, nonce, miner, timestamp):
+        mRoot = self.merkleRoot()
+        proof = w3.soliditySha3(f"mRoot:{miner}:{nonce}")
+        return proof
+
+    def difficultyMatched(self, nonce, miner, timestamp):
+        return (2**256 / int(self.proofOfWork(nonce, miner), 16)) >= self.difficulty
+        
+    def closeEpoch(self, nonce, miner, timestamp):
+        PoW = self.proofOfWork(nonce, miner)
+        if (self.difficultyMatched(nonce, miner)):
+            self.finished = True
+            self.PoW = PoW
+            self.endTimeStamp = timestamp
+            return True
+        else:
+            return False
+
+
+
+class EpochManager(object):
+    def __init__(self):
+        self.difficuly = 0
+        self.lastTimeStamp = 1641738403
+        self.difficulty = 1
+        self.epochs = [None]
+    
+    def getCurrentEpoch(self):
+        return self.epochs[len(self.epochs) - 1]
+    
+    def isPoWValid(self, nonce, miner, timestamp):
+        currentEpoch = getCurrentEpoch()
+        if not (currentEpoch.difficultyMatched(nonce, miner, timestamp)):
+            return (False, "UNMATCHED_DIFFICULTY")
+            
+        if timestamp < currentEpoch.beginTimeStamp:
+            return (False, "EPOCH_END_BEFORE_BEGINNING")
+        if currentEpoch.timestamp > time.time():
+            return (False, "TIMESTAMP_IN_THE_FUTURE")
+    
+    def difficultyForElapsedTime(self, _time):
+        return min((self.difficulty / time), 1)
+    
+    def mineEpoch(self, epochDetails):
+        isValid = self.isEpochValid(epochDetails)
+    
 
 class State(object):
     def __init__(self, initTxID):
