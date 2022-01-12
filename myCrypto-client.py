@@ -65,14 +65,14 @@ class GenesisBeacon(object):
         self.miner = "0x0000000000000000000000000000000000000000"
         self.parent = "Blahblah initializing the chain".encode()
         self.difficulty = 1
-        self.logsBloom = "Hello world, I dont have anything to put here so just saying random shit lol".encode()
+        self.messages = "Hello world, I dont have anything to put here so just saying random shit lol".encode()
         self.nonce = 0
         self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         self.proof = self.proofOfWork()
         
     def beaconRoot(self):
-        logsBloomHash = w3.soliditySha3(["bytes"], [self.logsBloom])
-        bRoot = w3.soliditySha3(["bytes32","bytes32", "uint256", "bytes","address"], [self.miningTarget, self.parent, self.timestamp, logsBloomHash, self.miner]) # beacon mining target (uint256), parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
+        messagesHash = w3.soliditySha3(["bytes"], [self.messages])
+        bRoot = w3.soliditySha3(["bytes32","bytes32", "uint256", "bytes","address"], [self.miningTarget, self.parent, self.timestamp, messagesHash, self.miner]) # beacon mining target (uint256), parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
         return bRoot.hex()
 
     def proofOfWork(self):
@@ -84,7 +84,7 @@ class GenesisBeacon(object):
         return (2**256 / int(self.proofOfWork(nonce, miner), 16)) >= self.difficulty
 
     def exportJson(self):
-        return {"logsBloom": self.logsBloom.hex(), "parent": self.parent.hex(), "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget}}
+        return {"messages": self.messages.hex(), "parent": self.parent.hex(), "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
 
 
 class Beacon(object):
@@ -99,14 +99,14 @@ class Beacon(object):
         # self.miningTarget = int((2**256)/self.difficulty)
         # self.proof = self.proofOfWork()
     
-    def __init__(self, data):
+    def __init__(self, data, difficulty):
         _data = json.loads(data)
         miningData = _data["miningData"]
         self.miner = web3.toChecksumAddress(miningData["miner"])
         self.nonce = miningData["nonce"]
         self.difficulty = difficulty
-        self.miningTarget = int((2**256)/self.difficulty)
-        self.logsBloom = data["logsBloom"]
+        self.miningTarget = hex(int((2**256)/self.difficulty))
+        self.messages = data["messages"]
         
         self.timestamp = data["timestamp"]
         self.parent = data["parent"]
@@ -116,8 +116,8 @@ class Beacon(object):
     
               
     def beaconRoot(self):
-        logsBloomHash = w3.soliditySha3(["bytes"], [self.logsBloom])
-        bRoot = w3.soliditySha3(["bytes32","bytes32", "uint256", "bytes","address"], [hex(self.miningTarget), self.parent, self.timestamp, logsBloomHash, self.miner]) # beacon mining target (uint256), parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
+        messagesHash = w3.soliditySha3(["bytes"], [self.mesages])
+        bRoot = w3.soliditySha3(["bytes32","bytes32", "uint256", "bytes32","address"], [hex(self.miningTarget), self.parent, self.timestamp, messagesHash, self.miner]) # beacon mining target (uint256), parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
         return bRoot.hex()
 
     def proofOfWork(self):
@@ -129,20 +129,22 @@ class Beacon(object):
         return (2**256 / int(self.proofOfWork(nonce, miner), 16)) >= self.difficulty
 
     def exportJson(self):
-        return {"logsBloom": self.logsBloom.hex(), "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget}}
+        return {"messages": self.messages.hex(), "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget}}
 
 class BeaconChain(object):
     def __init__(self):
         self.difficuly = 0
         self.difficulty = 1
+        self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         self.blocks = [GenesisBeacon()]
         self.blocksByHash = {self.blocks[0].proof: self.blocks[0]}
-        self.pendingLogsBloom = []
+        self.pendingMessages = []
+        self.blockTime = 1200 # in seconds, about 20 minutes
 
-    def checkBeaconLogsBloom(self, beacon):
-        _logsBloom = bytes.fromhex(beacon.logsBloom).decode().split(",")
-        for msg in _logsBloom:
-            if not msg in self.pendingLogsBloom:
+    def checkBeaconMessages(self, beacon):
+        _messages = bytes.fromhex(beacon.messages).decode().split(",")
+        for msg in _messages:
+            if (not msg in self.pendingMessages) and (msg != "null"):
                 return False
         return True
     
@@ -153,8 +155,8 @@ class BeaconChain(object):
         _lastBeacon = self.getLastBeacon()
         if _lastBeacon.proof != beacon.parent:
             return (False, "UNMATCHED_BEACON_PARENT")
-        if not self.checkBeaconLogsBloom(beacon):
-            return (False, "INVALID_LOGS_BLOOM")
+        if not self.checkBeaconMessages(beacon):
+            return (False, "INVALID_MESSAGE")
         if not beacon.difficultyMatched():
             return (False, "UNMATCHED_DIFFICULTY")
         if ((beacon.timestamp < _lastBeacon.timestamp) or (beacon.timestamp > time.time())):
@@ -164,7 +166,7 @@ class BeaconChain(object):
     
     def isBlockValid(self, blockData):
         try:
-            return self.isBeaconValid(Beacon(blockData))
+            return self.isBeaconValid(Beacon(blockData, self.difficulty))
         except Exception as e:
             return (False, e)
     
@@ -173,17 +175,20 @@ class BeaconChain(object):
     
     
     def addBeaconToChain(self, beacon):
-        _logsBloom = bytes.fromhex(beacon.logsBloom).decode().split(",")
-        for msg in _logsBloom:
-            self.pendingLogsBloom.remove(msg)
+        _messages = bytes.fromhex(beacon.messages).decode().split(",")
+        for msg in _messages:
+            self.pendingMessages.remove(msg)
         self.getLastBeacon().son = beacon.proof
+        _oldtimestamp = self.getLastBeacon().timestamp
         self.blocks.append(beacon)
         self.blocksByHash[beacon.proof] = beacon
+        self.difficulty = self.calcDifficulty(self.blockTime, _oldtimestamp, beacon.timestamp, self.currentDiff)
+        self.miningTarget = hex(int((2**256)/self.difficulty))
         return True
     
     def submitBlock(self, block):
         try:
-            _beacon = Beacon(block)
+            _beacon = Beacon(block, self.difficulty)
         except:
             return False
         if self.isBeaconValid(_beacon):
@@ -191,20 +196,17 @@ class BeaconChain(object):
             return True
         return False
     
-    def difficultyForElapsedTime(self, _time):
-        return min((self.difficulty / time), 1)
-    
     def mineEpoch(self, epochDetails):
         isValid = self.isEpochValid(epochDetails)
     
-    def submitMessage(self, message):
-        self.logsBloom.append("message")
     
-    def getBlockHeightJSON(self, height):
+    def submitMessage(self, message):
+        self.pendingMessages.append(message)
+    
+    def getBlockByHeightJSON(self, height):
         try:
             return self.blocks[height].exportJson()
         except:
-            raise
             return None
     
 
@@ -671,7 +673,7 @@ def buildTransactionAndSend():
 # BEACON RELATED DATA (loaded from node/state/beaconChain)
 @app.route("/chain/block/<block>")
 def getBlock(block):
-    _block = node.state.beaconChain.getBlockHeightJSON(int(block))
+    _block = node.state.beaconChain.getBlockByHeightJSON(int(block))
     print(_block)
     return flask.jsonify(result=_block, success=not not _block)
     
