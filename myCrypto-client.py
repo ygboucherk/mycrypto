@@ -43,16 +43,17 @@ class Message(object):
 class Transaction(object):
     def __init__(self, tx):
         txData = json.loads(tx["data"])
-        self.sender = w3.toChecksumAddress(txData.get("from"))
-        self.recipient = w3.toChecksumAddress(txData.get("to"))
-        self.value = float(txData.get("tokens"))
+        self.txtype = (txData.get("type") or 0)
+        if (self.txtype == 0):
+            self.sender = w3.toChecksumAddress(txData.get("from"))
+            self.recipient = w3.toChecksumAddress(txData.get("to"))
+            self.value = float(txData.get("tokens"))
+        if (self.txtype == 1):
+            self.blockData = tx.get("blockData")
         self.bio = txData.get("bio")
         self.parent = txData.get("parent")
         self.message = txData.get("message")
         self.txid = tx.get("hash")
-        self.txtype = (txData.get("type") or 0)
-        if (self.txtype == 1):
-            self.blockData = tx.get("blockData")
         
         self.PoW = ""
         self.endTimeStamp = 0
@@ -106,7 +107,7 @@ class Beacon(object):
         self.nonce = miningData["nonce"]
         self.difficulty = difficulty
         self.miningTarget = hex(int((2**256)/self.difficulty))
-        self.messages = data["messages"]
+        self.messages = bytes.fromhex(data["messages"])
         
         self.timestamp = data["timestamp"]
         self.parent = data["parent"]
@@ -208,6 +209,9 @@ class BeaconChain(object):
             return self.blocks[height].exportJson()
         except:
             return None
+    
+    def getLastBlockJSON(self):
+        return self.getLastBeacon().exportJson()
     
 
 class State(object):
@@ -674,9 +678,15 @@ def buildTransactionAndSend():
 @app.route("/chain/block/<block>")
 def getBlock(block):
     _block = node.state.beaconChain.getBlockByHeightJSON(int(block))
-    print(_block)
     return flask.jsonify(result=_block, success=not not _block)
-    
+
+@app.route("/chain/getlastblock")
+def getlastblock():
+    return flask.jsonify(result=node.state.beaconChain.getLastBlockJSON(), success=True)    
+
+@app.route("/chain/miningInfo")
+def getMiningInfo():
+    return flask.jsonify(result={"difficulty" : node.state.beaconChain.difficulty, "target": node.state.beaconChain.miningTarget, "lastBlockHash": node.state.beaconChain.getLastBeacon().proof}, success=True)    
 
 
 # SHARE PEERS (from `Node` class)
