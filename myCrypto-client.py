@@ -146,13 +146,19 @@ class BeaconChain(object):
                 return False
         return True
     
+    def calcDifficulty(self, expectedDelay, timestamp1, timestamp2, currentDiff):
+        return min((currentDiff * expectedDelay)/(timestamp2 - timestamp1), currentDiff * 0.9)
+    
     def isBeaconValid(self, beacon):
-        if self.getLastBeacon().proof != beacon.parent:
+        _lastBeacon = self.getLastBeacon()
+        if _lastBeacon.proof != beacon.parent:
             return (False, "UNMATCHED_BEACON_PARENT")
         if not self.checkBeaconLogsBloom(beacon):
             return (False, "INVALID_LOGS_BLOOM")
         if not beacon.difficultyMatched():
             return (False, "UNMATCHED_DIFFICULTY")
+        if ((beacon.timestamp < _lastBeacon.timestamp) or (beacon.timestamp > time.time())):
+            return (False, "INVALID_TIMESTAMP")
         return (True, "GOOD")
     
     
@@ -163,7 +169,7 @@ class BeaconChain(object):
             return (False, e)
     
     def getLastBeacon(self):
-        return self.blocks[len(self.epochs) - 1]
+        return self.blocks[len(self.blocks) - 1]
     
     
     def addBeaconToChain(self, beacon):
