@@ -82,7 +82,7 @@ class GenesisBeacon(object):
 
     def proofOfWork(self):
         bRoot = self.beaconRoot()
-        proof = w3.soliditySha3(["bytes32", "bytes32"], [bRoot, hex(self.nonce)])
+        proof = w3.soliditySha3(["bytes32", "uint256"], [bRoot, int(self.nonce)])
         return proof.hex()
 
     def difficultyMatched(self):
@@ -126,7 +126,7 @@ class Beacon(object):
     def proofOfWork(self):
         bRoot = self.beaconRoot()
         print(f"Beacon root : {bRoot}")
-        proof = w3.soliditySha3(["bytes32", "uint256"], [bRoot, hex(self.nonce)])
+        proof = w3.soliditySha3(["bytes32", "uint256"], [bRoot, int(self.nonce)])
         return proof.hex()
 
     def difficultyMatched(self):
