@@ -77,7 +77,7 @@ class GenesisBeacon(object):
         
     def beaconRoot(self):
         messagesHash = w3.soliditySha3(["bytes"], [self.messages])
-        bRoot = w3.soliditySha3(["bytes32","bytes32", "uint256", "bytes","address"], [self.miningTarget, self.parent, self.timestamp, messagesHash, self.miner]) # beacon mining target (uint256), parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
+        bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes","address"], [self.parent, self.timestamp, messagesHash, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
         return bRoot.hex()
 
     def proofOfWork(self):
@@ -86,7 +86,7 @@ class GenesisBeacon(object):
         return proof.hex()
 
     def difficultyMatched(self):
-        return (2**256 / int(self.proofOfWork(), 16)) >= self.difficulty
+        return int(self.proofOfWork(), 16) < self.miningTarget
 
     def exportJson(self):
         return {"messages": self.messages.hex(), "parent": self.parent.hex(), "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
@@ -109,9 +109,8 @@ class Beacon(object):
         self.miner = w3.toChecksumAddress(miningData["miner"])
         self.nonce = miningData["nonce"]
         self.difficulty = difficulty
-        self.miningTarget = hex(int(min(int((2**256-1)/self.difficulty),0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)))
         self.messages = bytes.fromhex(data["messages"])
-        
+        self.miningTarget = hex(int(min(int((2**256-1)/self.difficulty),0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)))
         self.timestamp = int(data["timestamp"])
         self.parent = data["parent"]
 
@@ -121,16 +120,19 @@ class Beacon(object):
               
     def beaconRoot(self):
         messagesHash = w3.soliditySha3(["bytes"], [self.messages])
-        bRoot = w3.soliditySha3(["bytes32","bytes32", "uint256", "bytes32","address"], [self.miningTarget, self.parent, int(self.timestamp), messagesHash, self.miner]) # beacon mining target (uint256), parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
+        bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes32","address"], [self.parent, int(self.timestamp), messagesHash, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
         return bRoot.hex()
 
     def proofOfWork(self):
         bRoot = self.beaconRoot()
-        proof = w3.soliditySha3(["bytes32", "bytes32"], [bRoot, hex(self.nonce)])
+        print(f"Beacon root : {bRoot}")
+        proof = w3.soliditySha3(["bytes32", "uint256"], [bRoot, hex(self.nonce)])
         return proof.hex()
 
     def difficultyMatched(self):
-        return (2**256 / int(self.proofOfWork(), 16)) >= self.difficulty
+        print(self.proofOfWork())
+        print(self.miningTarget)
+        return int(self.proofOfWork(), 16) < int(self.miningTarget, 16)
 
     def exportJson(self):
         return {"messages": self.messages.hex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget}}
@@ -152,7 +154,7 @@ class BeaconChain(object):
         return True
     
     def calcDifficulty(self, expectedDelay, timestamp1, timestamp2, currentDiff):
-        return max((currentDiff * expectedDelay)/(timestamp2 - timestamp1), currentDiff * 0.9, 1)
+        return max((currentDiff * expectedDelay)/max((timestamp2 - timestamp1), 1), currentDiff * 0.9, 1)
     
     def isBeaconValid(self, beacon):
         _lastBeacon = self.getLastBeacon()
@@ -196,13 +198,14 @@ class BeaconChain(object):
         print(block)
         try:
             _beacon = Beacon(block, self.difficulty)
-        except:
+        except Exception as e:
+            print(e)
             return False
         beaconValidity = self.isBeaconValid(_beacon)
-        print(beaconValidity)
+        print(f"\n\n\n{beaconValidity}\n\n\n")
         if beaconValidity[0]:
             self.addBeaconToChain(_beacon)
-            return True
+            return _beacon.miner
         return False
     
     def mineEpoch(self, epochDetails):
@@ -257,7 +260,7 @@ class State(object):
         return True
 
     def checkBalance(self, tx):
-        return tx.value >= (self.balances.get(tx.sender) or 0)
+        return tx.value > (self.balances.get(tx.sender) or 0)
 
 
 
@@ -271,9 +274,16 @@ class State(object):
             
         return (True, "It'll succeed")
 
+    def estimateMiningSuccess(self, tx):
+        self.ensureExistence(tx.sender)
+        return self.beaconChain.isBlockValid(tx.blockData)
+
     def willTransactionSucceed(self, tx):
         _tx = Transaction(tx)
-        return self.estimateTransferSuccess(_tx)
+        if _tx.txtype == 0:
+            return self.estimateTransferSuccess(_tx)
+        if _tx.txtype == 1:
+            return self.estimateMiningSuccess(_tx)
 
 
 
@@ -319,7 +329,7 @@ class State(object):
             self.applyParentStuff(tx)
             print(feedback)
             if feedback:
-                self.balances[tx.sender] += 50
+                self.balances[feedback] += 50
                 return True
             return False
         except:
@@ -421,6 +431,7 @@ class Node(object):
         _counter = 0
         for tx in txs:
             playable = self.canBePlayed(tx)
+            print(f"Result of canBePlayed: {playable}")
             if (not self.transactions.get(tx["hash"]) and playable[0]):
                 self.transactions[tx["hash"]] = tx
                 self.txsOrder.append(tx["hash"])
@@ -653,7 +664,7 @@ def numberOfTxs():
 def accountInfo(account):
     _address = w3.toChecksumAddress(account)
     balance = node.state.balances.get(_address)
-    transactions = node.state.transactions.get(_address)
+    transactions = node.state.transactions.get(_address) or [node.config["InitTxID"]]
     bio = node.state.accountBios.get(_address)
     return flask.jsonify(result={"balance": (balance or 0), "transactions": transactions, "bio": bio}, success= True)
 
