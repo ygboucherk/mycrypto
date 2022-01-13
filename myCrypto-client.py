@@ -40,18 +40,204 @@ class Message(object):
         self.recipient = _to
         self.msg = msg
 
+class Transaction(object):
+    def __init__(self, tx):
+        txData = json.loads(tx["data"])
+        self.txtype = (txData.get("type") or 0)
+        if (self.txtype == 0):
+            self.sender = w3.toChecksumAddress(txData.get("from"))
+            self.recipient = w3.toChecksumAddress(txData.get("to"))
+            self.value = float(txData.get("tokens"))
+        if (self.txtype == 1):
+            self.blockData = txData.get("blockData")
+            print(self.blockData)
+            self.recipient = "0x0000000000000000000000000000000000000000"
+            self.value = 0.0
+        self.sender = w3.toChecksumAddress(txData.get("from"))
+        self.bio = txData.get("bio")
+        self.parent = txData.get("parent")
+        self.message = txData.get("message")
+        self.txid = tx.get("hash")
+        
+        self.PoW = ""
+        self.endTimeStamp = 0
+
+
+
+class GenesisBeacon(object):
+    def __init__(self):
+        self.timestamp = 1641738403
+        self.miner = "0x0000000000000000000000000000000000000000"
+        self.parent = "Blahblah initializing the chain".encode()
+        self.difficulty = 1
+        self.messages = "Hello world, I dont have anything to put here so just saying random shit lol".encode()
+        self.nonce = 0
+        self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        self.proof = self.proofOfWork()
+        
+    def beaconRoot(self):
+        messagesHash = w3.soliditySha3(["bytes"], [self.messages])
+        bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes","address"], [self.parent, self.timestamp, messagesHash, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
+        return bRoot.hex()
+
+    def proofOfWork(self):
+        bRoot = self.beaconRoot()
+        proof = w3.soliditySha3(["bytes32", "uint256"], [bRoot, int(self.nonce)])
+        return proof.hex()
+
+    def difficultyMatched(self):
+        return int(self.proofOfWork(), 16) < self.miningTarget
+
+    def exportJson(self):
+        return {"messages": self.messages.hex(), "parent": self.parent.hex(), "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
+
+
+class Beacon(object):
+    # def __init__(self, parent, difficulty, timestamp, miner, logsBloom):
+        # self.miner = ""
+        # self.timestamp = timestamp
+        # self.parent = parent
+        # self.nonce = nonce
+        # self.logsBloom = logsBloom
+        # self.miner = w3.toChecksumAddress(miner)
+        # self.difficulty = difficulty
+        # self.miningTarget = int((2**256)/self.difficulty)
+        # self.proof = self.proofOfWork()
+    
+    def __init__(self, data, difficulty):
+        miningData = data["miningData"]
+        self.miner = w3.toChecksumAddress(miningData["miner"])
+        self.nonce = miningData["nonce"]
+        self.difficulty = difficulty
+        self.messages = bytes.fromhex(data["messages"])
+        self.miningTarget = hex(int(min(int((2**256-1)/self.difficulty),0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)))
+        self.timestamp = int(data["timestamp"])
+        self.parent = data["parent"]
+
+        self.proof = self.proofOfWork()
+        self.son = ""
+    
+              
+    def beaconRoot(self):
+        messagesHash = w3.soliditySha3(["bytes"], [self.messages])
+        bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes32","address"], [self.parent, int(self.timestamp), messagesHash, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
+        return bRoot.hex()
+
+    def proofOfWork(self):
+        bRoot = self.beaconRoot()
+        print(f"Beacon root : {bRoot}")
+        proof = w3.soliditySha3(["bytes32", "uint256"], [bRoot, int(self.nonce)])
+        return proof.hex()
+
+    def difficultyMatched(self):
+        print(self.proofOfWork())
+        print(self.miningTarget)
+        return int(self.proofOfWork(), 16) < int(self.miningTarget, 16)
+
+    def exportJson(self):
+        return {"messages": self.messages.hex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget}}
+
+class BeaconChain(object):
+    def __init__(self):
+        self.difficulty = 1
+        self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        self.blocks = [GenesisBeacon()]
+        self.blocksByHash = {self.blocks[0].proof: self.blocks[0]}
+        self.pendingMessages = []
+        self.blockTime = 1200 # in seconds, about 20 minutes
+
+    def checkBeaconMessages(self, beacon):
+        _messages = beacon.messages.decode().split(",")
+        for msg in _messages:
+            if (not msg in self.pendingMessages) and (msg != "null"):
+                return False
+        return True
+    
+    def calcDifficulty(self, expectedDelay, timestamp1, timestamp2, currentDiff):
+        return min(max((currentDiff * expectedDelay)/max((timestamp2 - timestamp1), 1), currentDiff * 0.9, 1), currentDiff*1.1)
+    
+    def isBeaconValid(self, beacon):
+        _lastBeacon = self.getLastBeacon()
+        if _lastBeacon.proof != beacon.parent:
+            return (False, "UNMATCHED_BEACON_PARENT")
+        if not self.checkBeaconMessages(beacon):
+            return (False, "INVALID_MESSAGE")
+        if not beacon.difficultyMatched():
+            return (False, "UNMATCHED_DIFFICULTY")
+        if ((int(beacon.timestamp) < _lastBeacon.timestamp) or (beacon.timestamp > time.time())):
+            return (False, "INVALID_TIMESTAMP")
+        return (True, "GOOD")
+    
+    
+    def isBlockValid(self, blockData):
+        try:
+            return self.isBeaconValid(Beacon(blockData, self.difficulty))
+        except Exception as e:
+            return (False, e)
+    
+    def getLastBeacon(self):
+        return self.blocks[len(self.blocks) - 1]
+    
+    
+    def addBeaconToChain(self, beacon):
+        _messages = beacon.messages.decode().split(",")
+        print(_messages)
+        for msg in _messages:
+            if msg != "null":
+                self.pendingMessages.remove(msg)
+        self.getLastBeacon().son = beacon.proof
+        _oldtimestamp = self.getLastBeacon().timestamp
+        self.blocks.append(beacon)
+        print(self.blocks)
+        self.blocksByHash[beacon.proof] = beacon
+        self.difficulty = self.calcDifficulty(self.blockTime, _oldtimestamp, int(beacon.timestamp), self.difficulty)
+        self.miningTarget = hex(int(min(int((2**256-1)/self.difficulty),0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)))
+        return True
+    
+    def submitBlock(self, block):
+        print(block)
+        try:
+            _beacon = Beacon(block, self.difficulty)
+        except Exception as e:
+            print(e)
+            return False
+        beaconValidity = self.isBeaconValid(_beacon)
+        print(f"\n\n\n{beaconValidity}\n\n\n")
+        if beaconValidity[0]:
+            self.addBeaconToChain(_beacon)
+            return _beacon.miner
+        return False
+    
+    def mineEpoch(self, epochDetails):
+        isValid = self.isEpochValid(epochDetails)
+    
+    
+    def submitMessage(self, message):
+        self.pendingMessages.append(message)
+    
+    def getBlockByHeightJSON(self, height):
+        try:
+            return self.blocks[height].exportJson()
+        except:
+            return None
+    
+    def getLastBlockJSON(self):
+        return self.getLastBeacon().exportJson()
+    
+
 class State(object):
     def __init__(self, initTxID):
-        self.balances = {"0x611B74e0dFA8085a54e8707c573A588138c9dDba": 10, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44": 100}
-        self.transactions = {}
-        self.received = {}
-        self.sent = {}
+        self.balances = {"0x611B74e0dFA8085a54e8707c573A588138c9dDba": 10, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44": 100, "0x0000000000000000000000000000000000000000": 0}
+        self.transactions = {"0x0000000000000000000000000000000000000000": []}
+        self.received = {"0x0000000000000000000000000000000000000000": []}
+        self.sent = {"0x0000000000000000000000000000000000000000": []}
         self.messages = {}
-        self.accountBios = {}
+        self.accountBios = {"0x0000000000000000000000000000000000000000": "Address zero dont have a bio but better to have something here lol"}
         self.initTxID = initTxID
         self.txChilds = {self.initTxID: []}
         self.txIndex = {}
         self.lastTxIndex = 0
+        self.beaconChain = BeaconChain()
 
     def ensureExistence(self, user):
         if not self.balances.get(user):
@@ -65,71 +251,107 @@ class State(object):
         if not self.accountBios.get(user):
             self.accountBios[user] = ""
 
-    def checkParent(self, tx, isExecuting):
-        if (((json.loads(tx["data"]).get("parent")) != self.getLastSentTx(_from)) and (self.getLastSentTx(_from) != None)):
-            if isExecuting:
-                pass
-#                print(f"Error executing tx {tx['hash']}, error: PARENT UNMATCHED")
-            return (False, "Parent unmatched")
 
-    def willTransactionSucceed(self, tx):
-        txData = json.loads(tx["data"])
-        _from = w3.toChecksumAddress(txData["from"])
-        _to = w3.toChecksumAddress(txData["from"])
-        self.ensureExistence(_from)
-        self.ensureExistence(_to)
-        _tokens = int(txData["tokens"])
-        if (_tokens > self.balances.get(_from)):
-            return (False, "Too low balance")
-        lastTx = self.getLastUserTx(_from)
-        if ((txData.get("parent")) != lastTx):
-            return (False, "Parent unmatched")
-        return (True, "It'll succeed")
 
-    def executeTransfer(self, tx, _from, _to, _tokens, showMessage):
-        txData = json.loads(tx["data"])
-        if (_tokens > self.balances.get(_from)):
+    def checkParent(self, tx):
+        lastTx = self.getLastUserTx(tx.sender)
+        if (tx.parent != lastTx):
+            return False
+        return True
+
+    def checkBalance(self, tx):
+        return tx.value > (self.balances.get(tx.sender) or 0)
+
+
+
+    def estimateTransferSuccess(self, _tx):
+        self.ensureExistence(_tx.sender)
+        self.ensureExistence(_tx.recipient)
+        if self.checkBalance(_tx):
             return (False, "Too low balance")
-        lastTx = self.getLastUserTx(_from)
-        if ((txData.get("parent")) != lastTx):
+        if not self.checkParent(_tx):
             return (False, "Parent unmatched")
             
-        
-        self.txChilds[tx["hash"]] = []
-        self.txChilds[txData.get("parent")].append(tx["hash"])
-        self.txIndex[tx["hash"]] = self.lastTxIndex
+        return (True, "It'll succeed")
+
+    def estimateMiningSuccess(self, tx):
+        self.ensureExistence(tx.sender)
+        return self.beaconChain.isBlockValid(tx.blockData)
+
+    def willTransactionSucceed(self, tx):
+        _tx = Transaction(tx)
+        if _tx.txtype == 0:
+            return self.estimateTransferSuccess(_tx)
+        if _tx.txtype == 1:
+            return self.estimateMiningSuccess(_tx)
+
+
+
+
+    # def mineBlock(self, blockData):
+        # self.beaconChain.submitBlock(blockData)
+
+
+
+    def applyParentStuff(self, tx):
+        self.txChilds[tx.txid] = []
+        self.txChilds[tx.parent].append(tx.txid)
+        self.txIndex[tx.txid] = self.lastTxIndex
         self.lastTxIndex += 1
+        self.transactions[tx.sender].append(tx.txid)
+        if (tx.sender != tx.recipient):
+            self.transactions[tx.recipient].append(tx.txid)
+        
+        self.sent[tx.sender].append(tx.txid)
+        self.received[tx.recipient].append(tx.txid)
+
+    def executeTransfer(self, tx, showMessage):
+        willSucceed = self.estimateTransferSuccess(tx)
+        if not willSucceed[0]:
+            return willSucceed
+        self.applyParentStuff(tx)
         
         
+        self.balances[tx.sender] -= tx.value
+        self.balances[tx.recipient] += tx.value
         
-        self.balances[_from] -= _tokens
-        self.balances[_to] += _tokens
-        self.transactions[_from].append(tx["hash"])
-        self.sent[_from].append(tx["hash"])
-        self.transactions[_to].append(tx["hash"])
-        self.received[_to].append(tx["hash"])
         if (showMessage):
-            print(f"Transfer executed !\nAmount transferred : {_tokens}\nFrom: {_from}\nTo: {_to}")
+            print(f"Transfer executed !\nAmount transferred : {tx.value}\nFrom: {tx.sender}\nTo: {tx.recipient}")
         return (True, "Transfer succeeded")
 
     def postMessage(self, msg, showMessage):
         pass # still under development
 
+    def mineBlock(self, tx):
+        try:
+            self.ensureExistence(tx.sender)
+            feedback = self.beaconChain.submitBlock(tx.blockData);
+            self.applyParentStuff(tx)
+            print(feedback)
+            if feedback:
+                self.balances[feedback] += 50
+                return True
+            return False
+        except:
+            raise
+            return False
+
+
     def playTransaction(self, tx, showMessage):
-        txData = json.loads(tx["data"])
-        _from = w3.toChecksumAddress(txData["from"])
-        _to = w3.toChecksumAddress(txData["to"])
-        self.ensureExistence(_from)
-        self.ensureExistence(_to)
-        _tokens = int(txData["tokens"])
-        transferFeedback = self.executeTransfer(tx, _from, _to, _tokens, showMessage)
-        msg = txData.get("message")
-        accountBio = txData.get("bio")
-        if (accountBio):
-            self.accountBios[_from] = accountBio.replace("%20", " ")
-        if msg:
-            self.leaveMessage(_from, _to, msg, showMessage)
-        return transferFeedback
+        _tx = Transaction(tx)
+        feedback = False
+        if _tx.txtype == 0:
+            feedback = self.executeTransfer(_tx, showMessage)
+        if _tx.txtype == 1:
+            feedback = self.mineBlock(_tx)
+        
+        
+        
+        if (_tx.bio):
+            self.accountBios[_tx.sender] = _tx.bio.replace("%20", " ")
+        # if _tx.message:
+            # self.leaveMessage(_from, _to, msg, showMessage)
+        return feedback
 
     def getLastUserTx(self, _user):
         user = w3.toChecksumAddress(_user)
@@ -137,7 +359,7 @@ class State(object):
         if (len(self.transactions[user]))>0:
             return self.transactions[user][len(self.transactions[user])-1]
         else:
-            return None
+            return self.initTxID
             
     def getLastSentTx(self, _user):
         user = w3.toChecksumAddress(_user)
@@ -145,7 +367,7 @@ class State(object):
         if (len(self.sent[user]))>0:
             return self.sent[user][len(self.sent[user])-1]
         else:
-            return None
+            return self.initTxID
             
     def getLastReceivedTx(self, _user):
         user = w3.toChecksumAddress(_user)
@@ -209,6 +431,7 @@ class Node(object):
         _counter = 0
         for tx in txs:
             playable = self.canBePlayed(tx)
+            print(f"Result of canBePlayed: {playable}")
             if (not self.transactions.get(tx["hash"]) and playable[0]):
                 self.transactions[tx["hash"]] = tx
                 self.txsOrder.append(tx["hash"])
@@ -441,7 +664,7 @@ def numberOfTxs():
 def accountInfo(account):
     _address = w3.toChecksumAddress(account)
     balance = node.state.balances.get(_address)
-    transactions = node.state.transactions.get(_address)
+    transactions = node.state.transactions.get(_address) or [node.config["InitTxID"]]
     bio = node.state.accountBios.get(_address)
     return flask.jsonify(result={"balance": (balance or 0), "transactions": transactions, "bio": bio}, success= True)
 
@@ -485,6 +708,24 @@ def buildTransactionAndSend():
     result = buildTransaction(self, privkey, _from, _to, tokens)[0]
     return flask.jsonify(result=result[0], success=result[1])
 
+
+# BEACON RELATED DATA (loaded from node/state/beaconChain)
+@app.route("/chain/block/<block>")
+def getBlock(block):
+    _block = node.state.beaconChain.getBlockByHeightJSON(int(block))
+    return flask.jsonify(result=_block, success=not not _block)
+
+@app.route("/chain/getlastblock")
+def getlastblock():
+    return flask.jsonify(result=node.state.beaconChain.getLastBlockJSON(), success=True)    
+
+@app.route("/chain/miningInfo")
+def getMiningInfo():
+    _result = {"difficulty" : node.state.beaconChain.difficulty, "target": node.state.beaconChain.miningTarget, "lastBlockHash": node.state.beaconChain.getLastBeacon().proof}
+    print(_result)
+    return flask.jsonify(result=_result, success=True)    
+
+
 # SHARE PEERS (from `Node` class)
 @app.route("/net/getPeers")
 def shareMyPeers():
@@ -493,5 +734,4 @@ def shareMyPeers():
 @app.route("/net/getOnlinePeers")
 def shareOnlinePeers():
     return flask.jsonify(result=node.goodPeers, success=True)
-
 app.run(host="0.0.0.0", port=5005)
