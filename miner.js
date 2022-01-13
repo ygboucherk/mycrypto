@@ -1,4 +1,4 @@
-class NetworkAccess {
+class Wallet {
 	constructor(web3Instance) {
 		this.web3Instance = web3Instance;
 	}
@@ -29,27 +29,25 @@ class NetworkAccess {
 	}
 
 	async buildTransaction(to, tokens) {
-		account = (await this.web3Instance.eth.getAccounts())[0];
-		parent = (await getHeadTx(account));
-		data = {"from":account, "to":this.web3Instance.utils.toChecksumAddress(to), "tokens":tokens, "parent": parent, "type": 0};
-		strdata = JSON.stringify(data);
-		hash = this.web3Instance.utils.soliditySha3(strdata);
-		signature = await this.web3Instance.eth.personal.sign(strdata, account);
-		tx = {"data": data, "sig": signature, "hash": hash, "nodeSigs": {}};
-		toSend = this.convertToHex(JSON.stringify(tx));
-		return toSend;
+		const account = (await this.web3Instance.eth.getAccounts())[0];
+		const parent = (await getHeadTx(account));
+		let data = {"from":account, "to":this.web3Instance.utils.toChecksumAddress(to), "tokens":tokens, "parent": parent, "type": 0};
+		let strdata = JSON.stringify(data);
+		const hash = this.web3Instance.utils.soliditySha3(strdata);
+		const signature = await this.web3Instance.eth.personal.sign(strdata, account);
+		const tx = {"data": data, "sig": signature, "hash": hash, "nodeSigs": {}};
+		return this.convertToHex(JSON.stringify(tx));
 	}
 	
 	async buildMiningTransaction(submittedBlock) {
-		account = (await this.web3Instance.eth.getAccounts())[0];
-		parent = (await getHeadTx(account));
-		data = {"from":account, "to":account, "tokens":0, "blockData": submittedBlock, "parent": parent, "type": 1};
-		strdata = JSON.stringify(data);
-		hash = this.web3Instance.utils.soliditySha3(strdata);
-		signature = await this.web3Instance.eth.personal.sign(strdata, account);
-		tx = {"data": data, "sig": signature, "hash": hash, "nodeSigs": {}};
-		toSend = this.convertToHex(JSON.stringify(tx));
-		return toSend;
+		const account = (await this.web3Instance.eth.getAccounts())[0];
+		const parent = (await getHeadTx(account));
+		let data = {"from":account, "to":account, "tokens":0, "blockData": submittedBlock, "parent": parent, "type": 1};
+		let strdata = JSON.stringify(data);
+		const hash = this.web3Instance.utils.soliditySha3(strdata);
+		const signature = await this.web3Instance.eth.personal.sign(strdata, account);
+		const tx = {"data": data, "sig": signature, "hash": hash, "nodeSigs": {}};
+		return this.convertToHex(JSON.stringify(tx));
 	}
 
 	async sendTransaction(signedTx) {
@@ -66,7 +64,7 @@ class Miner {
 		this.node = node;
 		this.clock = (new Date());
 		this.web3 = new Web3(window.ethereum);
-		this.account = window.ethereum.enable()[0];
+		window.ethereum.enable();
 		// "localhost:5005"
 	}
 	
@@ -79,7 +77,7 @@ class Miner {
 	}
 	
 	getHashToMine(miningTarget, parent, timestamp, messages, miner) {
-		messagesHash = web3.utils.soliditySha3({"t": "bytes", "v": toHex(messages)});
+		let messagesHash = web3.utils.soliditySha3({"t": "bytes", "v": convertToHex(messages)});
 		return web3.utils.soliditySha3({"t": "bytes32", "v": miningTarget}, {"t": "bytes32", "v": parent}, {"t": "uint256", "v": timestamp}, {"t": "bytes32", "v": messagesHash}, {"t": "address", "v": miner});
 	}
 
@@ -92,18 +90,22 @@ class Miner {
 		return (await (await fetch(`${this.node}/chain/miningInfo`)).json()).result;
 	}
 	
-	async mine(miningInfo) {
-//		miningInfo = await this.getMiningInfo();
-		hashToMine = this.getHashToMine(miningInfo.target, miningInfo.lastBlockHash, (this.clock.getTime()/1000).toFixed(), this.convertToHex("null"), this.account);
+	async mine() {
+		const miningInfo = await this.getMiningInfo();
+		let miningData = {"difficulty": miningInfo.difficulty, "miningTarget": miningInfo.target, "miner": (await this.web3.eth.getAccounts())[0], "nonce": (0).toFixed(), "proof": ""}
+		let context = {"messages": this.convertToHex("null"), "target": miningInfo.target, "parent": miningInfo.lastBlockHash, "timestamp": (this.clock.getTime()/1000).toFixed(), "miningData": miningData}
+		
+		const hashToMine = this.getHashToMine(context.miningData.miningTarget, context.parent, context.timestamp, context.messages, context.miningData.miner);
 		console.log(`Hash to mine with : ${hashToMine}`);
-		hash = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-		nonce = 0;
-		while (hash >= miningInfo.miningTarget) {
-			hash = this.web3.utils.soliditySha3({"t": "bytes32", "v": hashToMine}, {"t": "bytes32", "v": nonce})
+		let hash = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+		let nonce = 0;
+		while (BigInt(hash) >= BigInt(miningInfo.target)) {
+			console.log(nonce);
+			hash = this.web3.utils.soliditySha3({"t": "bytes32", "v": hashToMine}, {"t": "bytes32", "v": nonce.toFixed()})
 			nonce += 1;
 		}
-		return {"proof": hash, "nonce": nonce};
+		context.miningData.proof = hash;
+		context.miningData.nonce = nonce;
+		return context;
 	}
 }
-
-getHashToMine("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "0x5575a56d1a14e45af6982ca03adfbe26b8af36b509ee1add4ac800e9617ea7d7", 1642008475, "0", "0x3f119cef08480751c47a6f59af1ad2f90b319d44")
