@@ -154,7 +154,7 @@ class BeaconChain(object):
         return True
     
     def calcDifficulty(self, expectedDelay, timestamp1, timestamp2, currentDiff):
-        return max((currentDiff * expectedDelay)/max((timestamp2 - timestamp1), 1), currentDiff * 0.9, 1)
+        return min(max((currentDiff * expectedDelay)/max((timestamp2 - timestamp1), 1), currentDiff * 0.9, 1), currentDiff*1.1)
     
     def isBeaconValid(self, beacon):
         _lastBeacon = self.getLastBeacon()
