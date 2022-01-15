@@ -1,7 +1,7 @@
 class Wallet {
-	constructor(web3Instance) {
+	constructor(web3Instance, nodeURL) {
 		this.web3Instance = web3Instance;
-		this.miningAccount = web3.eth.accounts.privateKeyToAccount(web3.utils.soliditySha3((Math.random()*10**17).toFixed()));
+		this.node = nodeURL;
 	}
 	
 	convertFromHex(hex) {
@@ -20,8 +20,12 @@ class Wallet {
 		return hex;
 	}
 	
+	async getCurrentEpoch() {
+		return (await (await fetch(`${this.node}/chain/getlastblock`)).json()).result.miningData.proof;
+	}
+	
 	async getAccountInfo(account) {
-		return (await (await fetch(`http://136.244.119.124:5005/accounts/accountInfo/${account}`)).json()).result;
+		return (await (await fetch(`${this.node}/accounts/accountInfo/${account}`)).json()).result;
 	}
 
 	async getHeadTx(account) {
@@ -32,7 +36,7 @@ class Wallet {
 	async buildTransaction(to, tokens) {
 		const account = (await this.web3Instance.eth.getAccounts())[0];
 		const parent = (await getHeadTx(account));
-		let data = {"from":account, "to":this.web3Instance.utils.toChecksumAddress(to), "tokens":tokens, "parent": parent, "type": 0};
+		let data = {"from":account, "to":this.web3Instance.utils.toChecksumAddress(to), "tokens":tokens, "parent": parent, "epoch": (await this.getCurrentEpoch()),"type": 0};
 		let strdata = JSON.stringify(data);
 		const hash = this.web3Instance.utils.soliditySha3(strdata);
 		const signature = await this.web3Instance.eth.personal.sign(strdata, account);
@@ -40,20 +44,20 @@ class Wallet {
 		return this.convertToHex(JSON.stringify(tx));
 	}
 	
-	async buildMiningTransaction(submittedBlock) {
-		const account = (await this.web3Instance.eth.getAccounts())[0];
-		const parent = (await getHeadTx(this.miningAccount.address));
-		let data = {"from":this.miningAccount.address, "to":this.miningAccount.address, "tokens":0, "blockData": submittedBlock, "parent": parent, "type": 1};
+	async buildMiningTransaction(miningAccount, submittedBlock) {
+//		const account = (await this.web3Instance.eth.getAccounts())[0];
+		const parent = (await getHeadTx(miningAccount.address));
+		let data = {"from":miningAccount.address, "to":miningAccount.address, "tokens":0, "blockData": submittedBlock, "parent": parent, "epoch": (await this.getCurrentEpoch()),"type": 1};
 		let strdata = JSON.stringify(data);
 		const hash = this.web3Instance.utils.soliditySha3(strdata);
-		const signature = await this.miningAccount.sign(strdata).signature;
+		const signature = await miningAccount.sign(strdata).signature;
 		const tx = {"data": data, "sig": signature, "hash": hash, "nodeSigs": {}};
 		return this.convertToHex(JSON.stringify(tx));
 	}
 
 	async sendTransaction(signedTx) {
 		console.log(signedTx);
-		return (await (await fetch(`http://136.244.119.124:5005/send/rawtransaction/?tx=${signedTx}`)).json()).result;
+		return (await (await fetch(`${this.node}/send/rawtransaction/?tx=${signedTx}`)).json()).result;
 	}
 	
 	getVrs(sig) {
@@ -62,12 +66,13 @@ class Wallet {
 }
 
 class Miner {
-	constructor(node) {
+	constructor(node, rewardsRecipient) {
 		this.node = node;
 		this.clock = (new Date());
-		this.web3 = new Web3(window.ethereum);
+		this.web3 = new Web3();
+		this.miningRewardsRecipient = this.web3.utils.toChecksumAddress(rewardsRecipient);
 		this.wallet = new Wallet(this.web3);
-		this.accounts = window.ethereum.enable();
+		this.miningAccount = this.web3.eth.accounts.privateKeyToAccount(web3.utils.soliditySha3((Math.random()*10**17).toFixed()));
 		// "localhost:5005"
 	}
 	
@@ -96,7 +101,7 @@ class Miner {
 	
 	async mine() {
 		const miningInfo = await this.getMiningInfo();
-		let miningData = {"difficulty": miningInfo.difficulty, "miningTarget": miningInfo.target, "miner": (await this.web3.eth.getAccounts())[0], "nonce": (0).toFixed(), "proof": ""}
+		let miningData = {"difficulty": miningInfo.difficulty, "miningTarget": miningInfo.target, "miner": this.miningRewardsRecipient, "nonce": (0).toFixed(), "proof": ""}
 		let context = {"messages": this.convertToHex("null"), "target": miningInfo.target, "parent": miningInfo.lastBlockHash, "timestamp": (this.clock.getTime()/1000).toFixed(), "miningData": miningData}
 		
 		const hashToMine = this.getHashToMine(context);
@@ -122,7 +127,7 @@ class Miner {
 	async mineForever() {
 		await this.accounts; // mining only starts once metamask window loaded
 		while (true) {
-			console.log(await this.wallet.sendTransaction(await this.wallet.buildMiningTransaction(await this.mine())));
+			console.log(await this.wallet.sendTransaction(await this.wallet.buildMiningTransaction(this.miningAccount, await this.mine())));
 		}
 	}
 }
