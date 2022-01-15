@@ -294,7 +294,7 @@ class State(object):
     def willTransactionSucceed(self, tx):
         _tx = Transaction(tx)
         underlyingOperationSuccess = False
-        validBeacon = isBeaconCorrect(tx)
+        validBeacon = self.isBeaconCorrect(tx)
         correctBeacon = False
         if _tx.txtype == 0:
             underlyingOperationSuccess = self.estimateTransferSuccess(_tx)
