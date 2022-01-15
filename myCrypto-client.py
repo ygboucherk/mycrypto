@@ -53,6 +53,9 @@ class Transaction(object):
             print(self.blockData)
             self.recipient = "0x0000000000000000000000000000000000000000"
             self.value = 0.0
+        
+        self.epoch = txData.get("epoch")
+        
         self.sender = w3.toChecksumAddress(txData.get("from"))
         self.bio = txData.get("bio")
         self.parent = txData.get("parent")
@@ -74,6 +77,7 @@ class GenesisBeacon(object):
         self.nonce = 0
         self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         self.proof = self.proofOfWork()
+        self.transactions = []
         
     def beaconRoot(self):
         messagesHash = w3.soliditySha3(["bytes"], [self.messages])
@@ -89,7 +93,7 @@ class GenesisBeacon(object):
         return int(self.proofOfWork(), 16) < self.miningTarget
 
     def exportJson(self):
-        return {"messages": self.messages.hex(), "parent": self.parent.hex(), "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
+        return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
 
 
 class Beacon(object):
@@ -113,7 +117,7 @@ class Beacon(object):
         self.miningTarget = hex(int(min(int((2**256-1)/self.difficulty),0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)))
         self.timestamp = int(data["timestamp"])
         self.parent = data["parent"]
-
+        self.transactions = []
         self.proof = self.proofOfWork()
         self.son = ""
     
@@ -135,7 +139,7 @@ class Beacon(object):
         return int(self.proofOfWork(), 16) < int(self.miningTarget, 16)
 
     def exportJson(self):
-        return {"messages": self.messages.hex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget}}
+        return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget}}
 
 class BeaconChain(object):
     def __init__(self):
@@ -239,6 +243,12 @@ class State(object):
         self.lastTxIndex = 0
         self.beaconChain = BeaconChain()
 
+    def getCurrentEpoch(self):
+        return self.beaconChain.getLastBeacon().proof
+        
+    def getGenesisEpoch(self):
+        return self.beaconChain.blocks[0].proof
+
     def ensureExistence(self, user):
         if not self.balances.get(user):
             self.balances[user] = 0
@@ -278,15 +288,18 @@ class State(object):
         self.ensureExistence(tx.sender)
         return self.beaconChain.isBlockValid(tx.blockData)
 
+    def isBeaconCorrect(self, tx):
+        return (not tx.epoch) or (tx.epoch == self.getCurrentEpoch())
+
     def willTransactionSucceed(self, tx):
         _tx = Transaction(tx)
+        underlyingOperationSuccess = False
+        correctBeacon = False
         if _tx.txtype == 0:
-            return self.estimateTransferSuccess(_tx)
+            underlyingOperationSuccess = self.estimateTransferSuccess(_tx)
         if _tx.txtype == 1:
-            return self.estimateMiningSuccess(_tx)
-
-
-
+            underlyingOperationSuccess = self.estimateMiningSuccess(_tx)
+        
 
     # def mineBlock(self, blockData):
         # self.beaconChain.submitBlock(blockData)
@@ -301,6 +314,12 @@ class State(object):
         self.transactions[tx.sender].append(tx.txid)
         if (tx.sender != tx.recipient):
             self.transactions[tx.recipient].append(tx.txid)
+        
+        _txepoch = tx.epoch or self.getGenesisEpoch()
+        if self.beaconChain.blocksByHash.get(_txepoch):
+            self.beaconChain.blocksByHash[_txepoch].transactions.append(tx.txid)
+        else:
+            self.beaconChain.blocksByHash[self.getGenesisEpoch()].transactions.append(tx.txid)
         
         self.sent[tx.sender].append(tx.txid)
         self.received[tx.recipient].append(tx.txid)
