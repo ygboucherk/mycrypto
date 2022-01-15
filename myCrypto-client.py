@@ -767,7 +767,7 @@ def getBlock(block):
     return flask.jsonify(result=_block, success=not not _block)
 
 @app.route("/chain/blockByHash/<blockhash>")
-def blockByHash(blockhash)
+def blockByHash(blockhash):
     _block = node.state.beaconChain.blocksByHash.get(blockhash)
     return flask.jsonify(result=_block, success=not not _block)
 
