@@ -294,11 +294,13 @@ class State(object):
     def willTransactionSucceed(self, tx):
         _tx = Transaction(tx)
         underlyingOperationSuccess = False
+        validBeacon = isBeaconCorrect(tx)
         correctBeacon = False
         if _tx.txtype == 0:
             underlyingOperationSuccess = self.estimateTransferSuccess(_tx)
         if _tx.txtype == 1:
             underlyingOperationSuccess = self.estimateMiningSuccess(_tx)
+        return (underlyingOperationSuccess and correctBeacon)
         
 
     # def mineBlock(self, blockData):
@@ -409,6 +411,7 @@ class Node(object):
         self.state = State(config["InitTxID"])
         self.config = config
         self.peers = config["peers"]
+        self.bestBlockChecked = 0
         self.goodPeers = []
         self.checkGuys()
         self.initNode()
@@ -518,7 +521,8 @@ class Node(object):
         return txs
 
     def pullChildsOfATx(self, txid):
-        children = self.state.txChilds.get(txid) or []
+        vwjnvfeuuqubb = self.state.txChilds.get(txid) or []
+        children = vwjnvfeuuqubb.copy()
         for peer in self.goodPeers:
             try:
                 _childs = requests.get(f"{peer}/accounts/txChilds/{txid}").json()["result"]
@@ -531,6 +535,21 @@ class Node(object):
             except:
                 pass
         return children
+        
+    def pullTxsByBlockNumber(self, blockNumber):
+        txs = self.state.beaconChain.blocks[blockNumber].transactions.copy()
+        for peer in self.goodPeers:
+            try:
+                _txs = requests.get(f"{peer}/accounts/txChilds/{txid}").json()["result"]
+                for _tx in _txs:
+                    if not (_tx in txs):
+                        parent = json.loads(self.pullSetOfTxs([_tx])[0]["data"])["parent"]
+                        if (parent == txid):
+                            txs.append(_tx)
+                break
+            except:
+                pass
+        return txs
     
     def execTxAndRetryWithChilds(self, txid):
 #        print(f"Loading tx {txid}")
@@ -548,6 +567,19 @@ class Node(object):
         for txid in toCheck:
             _childs = self.execTxAndRetryWithChilds(txid)
     
+    def getChainLength(self):
+        self.checkGuys()
+        length = 0
+        for peer in self.goodPeers:
+            length = max(requests.get(f"{peer}/chain/length").json()["result"], length)
+        return length
+    
+    def syncByBlock(self):
+        self.checkTxs(self.pullSetOfTxs(self.pullTxsByBlockNumber(0)))
+        for blockNumber in range(self.bestBlockChecked,self.getChainLength()):
+            self.checkTxs(self.pullSetOfTxs(self.pullTxsByBlockNumber(blockNumber)))
+            self.bestBlockChecked = blockNumber
+    
     
     def propagateTransactions(self,txs):
         toPush = []
@@ -563,7 +595,7 @@ class Node(object):
         while True:
 #            print("Refreshing transactions from other nodes")
             self.checkGuys()
-            self.syncDB()
+            self.syncByBlock()
             time.sleep(60)
 
 
@@ -734,6 +766,11 @@ def getBlock(block):
     _block = node.state.beaconChain.getBlockByHeightJSON(int(block))
     return flask.jsonify(result=_block, success=not not _block)
 
+@app.route("/chain/blockByHash/<blockhash>")
+def blockByHash(blockhash)
+    _block = node.state.beaconChain.blocksByHash.get(blockhash)
+    return flask.jsonify(result=_block, success=not not _block)
+
 @app.route("/chain/getlastblock")
 def getlastblock():
     return flask.jsonify(result=node.state.beaconChain.getLastBlockJSON(), success=True)    
@@ -744,6 +781,9 @@ def getMiningInfo():
     print(_result)
     return flask.jsonify(result=_result, success=True)    
 
+@app.route("/chain/length")
+def getChainLength():
+    return flask.jsonify(result=len(self.beaconChain.blocks), success=True)
 
 # SHARE PEERS (from `Node` class)
 @app.route("/net/getPeers")
