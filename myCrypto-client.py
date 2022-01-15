@@ -294,7 +294,7 @@ class State(object):
     def willTransactionSucceed(self, tx):
         _tx = Transaction(tx)
         underlyingOperationSuccess = False
-        validBeacon = self.isBeaconCorrect(tx)
+        validBeacon = self.isBeaconCorrect(_tx)
         correctBeacon = False
         if _tx.txtype == 0:
             underlyingOperationSuccess = self.estimateTransferSuccess(_tx)
@@ -422,7 +422,7 @@ class Node(object):
         playableByState = False
         sigVerified = self.sigmanager.verifyTransaction(tx)
         playableByState = self.state.willTransactionSucceed(tx)
-        return (sigVerified and playableByState[0], sigVerified, playableByState)
+        return (sigVerified and playableByState, sigVerified, playableByState)
         
 
     def addTxToMempool(self, tx):
@@ -783,7 +783,7 @@ def getMiningInfo():
 
 @app.route("/chain/length")
 def getChainLength():
-    return flask.jsonify(result=len(self.beaconChain.blocks), success=True)
+    return flask.jsonify(result=len(node.state.beaconChain.blocks), success=True)
 
 # SHARE PEERS (from `Node` class)
 @app.route("/net/getPeers")
