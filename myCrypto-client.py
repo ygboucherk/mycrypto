@@ -121,6 +121,7 @@ class Transaction(object):
             self.value = float(ethDecoded.value/(10**18))
             self.nonce = ethDecoded.nonce
             self.ethData = ethDecoded.data
+            self.ethTxid = ethDecoded.hash_tx
             
         
         self.epoch = txData.get("epoch")
@@ -145,6 +146,7 @@ class GenesisBeacon(object):
         self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         self.proof = self.proofOfWork()
         self.transactions = []
+        self.number = 0
         
     def beaconRoot(self):
         messagesHash = w3.soliditySha3(["bytes"], [self.messages])
@@ -160,7 +162,7 @@ class GenesisBeacon(object):
         return int(self.proofOfWork(), 16) < self.miningTarget
 
     def exportJson(self):
-        return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
+        return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
 
 
 class Beacon(object):
@@ -186,6 +188,7 @@ class Beacon(object):
         self.parent = data["parent"]
         self.transactions = []
         self.proof = self.proofOfWork()
+        self.number = 0
         self.son = ""
     
               
@@ -206,7 +209,7 @@ class Beacon(object):
         return int(self.proofOfWork(), 16) < int(self.miningTarget, 16)
 
     def exportJson(self):
-        return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
+        return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
 
 class BeaconChain(object):
     def __init__(self):
@@ -254,8 +257,10 @@ class BeaconChain(object):
         _messages = beacon.messages.decode()
         if _messages != "null":
             self.pendingMessages.remove(msg)
+        currentChainLength = len(self.blocks)
         self.getLastBeacon().son = beacon.proof
         _oldtimestamp = self.getLastBeacon().timestamp
+        beacon.number = currentChainLength
         self.blocks.append(beacon)
         self.blocksByHash[beacon.proof] = beacon
         self.difficulty = self.calcDifficulty(self.blockTime, _oldtimestamp, int(beacon.timestamp), self.difficulty)
@@ -308,6 +313,7 @@ class State(object):
         self.lastTxIndex = 0
         self.beaconChain = BeaconChain()
         self.totalSupply = 110 # initial supply used for testing
+        self.ethTxToNormalTx = {}
 
     def getCurrentEpoch(self):
         return self.beaconChain.getLastBeacon().proof
@@ -382,6 +388,7 @@ class State(object):
         self.txChilds[tx.txid] = []
         if tx.txtype == 2:
             tx.parent = self.sent.get(tx.sender)[tx.nonce - 1]
+            
         self.txChilds[tx.parent].append(tx.txid)
         self.txIndex[tx.txid] = self.lastTxIndex
         self.lastTxIndex += 1
@@ -686,8 +693,18 @@ class Node(object):
             self.syncByBlock()
             time.sleep(60)
 
+    def txReceipt(self, txid):
+        _tx_ = Transaction(self.transactions.get(txid))
+        _blockHash = _tx_.epoch or self.state.getGenesisEpoch()
+        _beacon_ = self.state.beaconChain.blocksByHash.get(_blockHash)
+        return {"transactionHash": txid,"transactionIndex":  '0x1',"blockNumber": _beacon_.number, "blockHash": _blockHash, "cumulativeGasUsed": '0x5208', "gasUsed": '0x5208',"contractAddress": None,"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
+    
+    
+    
+    
+
     def integrateETHTransaction(self, ethTx):
-        data = json.dumps({"rawTx": ethTx, "type": 2}).replace(" ", "")
+        data = json.dumps({"rawTx": ethTx, "epoch": self.state.getCurrentEpoch(), "type": 2}).replace(" ", "")
         _txid_ = w3.soliditySha3(["string"], [data]).hex()
         self.checkTxs([{"data": data, "hash": _txid_}])
         return _txid_
@@ -810,7 +827,8 @@ def accountInfo(account):
     balance = node.state.balances.get(_address)
     transactions = node.state.transactions.get(_address) or [node.config["InitTxID"]]
     bio = node.state.accountBios.get(_address)
-    return flask.jsonify(result={"balance": (balance or 0), "transactions": transactions, "bio": bio}, success= True)
+    nonce = len(node.state.sent.get(_address) or ["init"])
+    return flask.jsonify(result={"balance": (balance or 0), "nonce": nonce, "transactions": transactions, "bio": bio}, success= True)
 
 @app.route("/accounts/accountBalance/<account>")
 def accountBalance(account):
@@ -913,9 +931,11 @@ def handleWeb3Request():
     if method == "eth_blockNumber":
         result = hex(len(node.state.beaconChain.blocks) - 1)
     if method == "eth_getTransactionCount":
-        result = hex(len(node.state.sent.get(params[0]) or []))
+        result = hex(len(node.state.sent.get(w3.toChecksumAddress(params[0])) or []))
     if method == "eth_getCode":
         result = "0x"
+    if method == "eth_estimateGas":
+        result = '0x5208'
     # if method == "eth_sign":
         # result = w3.eth.account.sign_message(encode_defunct(text=), private_key="").signature.hex()
     if method == "eth_call":
@@ -925,6 +945,8 @@ def handleWeb3Request():
     if method == "eth_sendRawTransaction":
         result = node.integrateETHTransaction(params[0])
         print(result)
+    if method == "eth_getTransactionReceipt":
+        result = node.txReceipt(params[0])
     
         
     return flask.Response(json.dumps({"id": _id, "jsonrpc": 2.0, "result": result}), mimetype='application/json');
