@@ -313,7 +313,8 @@ class State(object):
         self.lastTxIndex = 0
         self.beaconChain = BeaconChain()
         self.totalSupply = 110 # initial supply used for testing
-        self.ethTxToNormalTx = {}
+        self.type2ToType0Hash = {}
+        self.type0ToType2Hash = {}
 
     def getCurrentEpoch(self):
         return self.beaconChain.getLastBeacon().proof
@@ -388,6 +389,8 @@ class State(object):
         self.txChilds[tx.txid] = []
         if tx.txtype == 2:
             tx.parent = self.sent.get(tx.sender)[tx.nonce - 1]
+            self.type2ToType0Hash[tx.ethTxid] = tx.txid
+            self.type0ToType2Hash[tx.txid] = tx.ethTxid
             
         self.txChilds[tx.parent].append(tx.txid)
         self.txIndex[tx.txid] = self.lastTxIndex
@@ -395,7 +398,6 @@ class State(object):
         self.transactions[tx.sender].append(tx.txid)
         if (tx.sender != tx.recipient):
             self.transactions[tx.recipient].append(tx.txid)
-            
         if tx.txtype == 1:
             miner = tx.blockData.get("miningData").get("miner")
             self.ensureExistence(miner)
@@ -694,10 +696,13 @@ class Node(object):
             time.sleep(60)
 
     def txReceipt(self, txid):
-        _tx_ = Transaction(self.transactions.get(txid))
+        _txid = txid
+        if self.state.type2ToType0Hash.get(txid):
+            _txid = self.state.type2ToType0Hash.get(txid)
+        _tx_ = Transaction(self.transactions.get(_txid))
         _blockHash = _tx_.epoch or self.state.getGenesisEpoch()
         _beacon_ = self.state.beaconChain.blocksByHash.get(_blockHash)
-        return {"transactionHash": txid,"transactionIndex":  '0x1',"blockNumber": _beacon_.number, "blockHash": _blockHash, "cumulativeGasUsed": '0x5208', "gasUsed": '0x5208',"contractAddress": None,"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
+        return {"transactionHash": _txid,"transactionIndex":  '0x1',"blockNumber": _beacon_.number, "blockHash": _blockHash, "cumulativeGasUsed": '0x5208', "gasUsed": '0x5208',"contractAddress": None,"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
     
     
     
@@ -949,7 +954,7 @@ def handleWeb3Request():
         result = node.txReceipt(params[0])
     
         
-    return flask.Response(json.dumps({"id": _id, "jsonrpc": 2.0, "result": result}), mimetype='application/json');
+    return flask.Response(json.dumps({"id": _id, "jsonrpc": "2.0", "result": result}), mimetype='application/json');
     
 
 
