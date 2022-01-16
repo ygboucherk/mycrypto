@@ -1,8 +1,13 @@
-import requests, time, json, threading, hashlib, flask
+import requests, time, json, threading, hashlib, flask, rlp
 global config
 from web3.auto import w3
 from eth_account.messages import encode_defunct
 from flask_cors import CORS
+from dataclasses import asdict, dataclass
+from typing import Optional
+from eth_utils import keccak
+from rlp.sedes import Binary, big_endian_int, binary
+
 
 transactions = {}
 try:
@@ -43,6 +48,51 @@ class SignatureManager(object):
         self.verified += int(result)
         return result
 
+class ETHTransactionDecoder(object):
+    class Transaction(rlp.Serializable):
+        fields = [
+            ("nonce", big_endian_int),
+            ("gas_price", big_endian_int),
+            ("gas", big_endian_int),
+            ("to", Binary.fixed_length(20, allow_empty=True)),
+            ("value", big_endian_int),
+            ("data", binary),
+            ("v", big_endian_int),
+            ("r", big_endian_int),
+            ("s", big_endian_int),
+        ]
+
+
+    @dataclass
+    class DecodedTx:
+        hash_tx: str
+        from_: str
+        to: Optional[str]
+        nonce: int
+        gas: int
+        gas_price: int
+        value: int
+        data: str
+        chain_id: int
+        r: str
+        s: str
+        v: int
+
+
+    def decode_raw_tx(self, raw_tx: str):
+        bytesTx = bytes.fromhex(raw_tx.replace("0x", ""))
+        tx = rlp.decode(bytesTx, self.Transaction)
+        hash_tx = w3.toHex(keccak(bytesTx))
+        from_ = w3.eth.account.recover_transaction(raw_tx)
+        to = w3.toChecksumAddress(tx.to) if tx.to else None
+        data = w3.toHex(tx.data)
+        r = hex(tx.r)
+        s = hex(tx.s)
+        chain_id = (tx.v - 35) // 2 if tx.v % 2 else (tx.v - 36) // 2
+        return self.DecodedTx(hash_tx, from_, to, tx.nonce, tx.gas, tx.gas_price, tx.value, data, chain_id, r, s, tx.v)
+
+
+
 class Message(object):
     def __init__(self, _from, _to, msg):
         self.sender = _from
@@ -58,21 +108,29 @@ class Transaction(object):
             self.recipient = w3.toChecksumAddress(txData.get("to"))
             self.value = float(txData.get("tokens"))
         if (self.txtype == 1):
+            self.sender = w3.toChecksumAddress(txData.get("from"))
             self.blockData = txData.get("blockData")
             # print(self.blockData)
             self.recipient = "0x0000000000000000000000000000000000000000"
             self.value = 0.0
+        elif self.txtype == 2:
+            decoder = ETHTransactionDecoder()
+            ethDecoded = decoder.decode_raw_tx(txData.get("rawTx"))
+            self.sender = ethDecoded.from_
+            self.recipient = ethDecoded.to
+            self.value = float(ethDecoded.value/(10**18))
+            self.nonce = ethDecoded.nonce
+            self.ethData = ethDecoded.data
+            
         
         self.epoch = txData.get("epoch")
-        
-        self.sender = w3.toChecksumAddress(txData.get("from"))
         self.bio = txData.get("bio")
         self.parent = txData.get("parent")
         self.message = txData.get("message")
         self.txid = tx.get("hash")
         
-        self.PoW = ""
-        self.endTimeStamp = 0
+        # self.PoW = ""
+        # self.endTimeStamp = 0
 
 
 
@@ -251,7 +309,6 @@ class State(object):
         self.beaconChain = BeaconChain()
         self.totalSupply = 110 # initial supply used for testing
 
-
     def getCurrentEpoch(self):
         return self.beaconChain.getLastBeacon().proof
         
@@ -276,13 +333,14 @@ class State(object):
 
     def checkParent(self, tx):
         lastTx = self.getLastUserTx(tx.sender)
-        if (tx.parent != lastTx):
-            return False
-        return True
+        if tx.txtype == 2:
+            tx.parent = self.sent.get(tx.sender)[tx.nonce - 1]
+            return (tx.nonce == len(self.sent.get(tx.sender)))
+        else: 
+            return (tx.parent == lastTx)
 
     def checkBalance(self, tx):
         return tx.value > (self.balances.get(tx.sender) or 0)
-
 
 
     def estimateTransferSuccess(self, _tx):
@@ -306,12 +364,13 @@ class State(object):
     def willTransactionSucceed(self, tx):
         _tx = Transaction(tx)
         underlyingOperationSuccess = False
+        correctParent = self.checkParent(_tx)
         correctBeacon = self.isBeaconCorrect(_tx)
-        if _tx.txtype == 0:
-            underlyingOperationSuccess = self.estimateTransferSuccess(_tx)
+        if _tx.txtype == 0 or _tx.txtype == 2:
+            underlyingOperationSuccess = self.estimateTransferSuccess(_tx)[0]
         if _tx.txtype == 1:
-            underlyingOperationSuccess = self.estimateMiningSuccess(_tx)
-        return (underlyingOperationSuccess[0] and correctBeacon)
+            underlyingOperationSuccess = self.estimateMiningSuccess(_tx)[0]
+        return (underlyingOperationSuccess and correctBeacon and correctParent)
         
 
     # def mineBlock(self, blockData):
@@ -321,6 +380,8 @@ class State(object):
 
     def applyParentStuff(self, tx):
         self.txChilds[tx.txid] = []
+        if tx.txtype == 2:
+            tx.parent = self.sent.get(tx.sender)[tx.nonce - 1]
         self.txChilds[tx.parent].append(tx.txid)
         self.txIndex[tx.txid] = self.lastTxIndex
         self.lastTxIndex += 1
@@ -330,6 +391,7 @@ class State(object):
             
         if tx.txtype == 1:
             miner = tx.blockData.get("miningData").get("miner")
+            self.ensureExistence(miner)
             self.mined[miner].append(tx.txid)
             self.transactions[miner].append(tx.txid)
         _txepoch = tx.epoch or self.getGenesisEpoch()
@@ -365,7 +427,7 @@ class State(object):
             self.applyParentStuff(tx)
             # print(feedback)
             if feedback:
-                self.ensureExistence(feedback)
+#                self.ensureExistence(feedback)
                 self.balances[feedback] += 50
                 self.totalSupply += 50
                 return True
@@ -382,7 +444,8 @@ class State(object):
             feedback = self.executeTransfer(_tx, showMessage)
         if _tx.txtype == 1:
             feedback = self.mineBlock(_tx)
-        
+        if _tx.txtype == 2:
+            feedback = self.executeTransfer(_tx, showMessage)
         
         
         if (_tx.bio):
@@ -414,6 +477,7 @@ class State(object):
             return self.received[user][len(self.received[user])-1]
         else:
             return None
+    
 
 class Peer(object):
     def __init__(self, url):
@@ -437,7 +501,10 @@ class Node(object):
     def canBePlayed(self, tx):
         sigVerified = False
         playableByState = False
-        sigVerified = self.sigmanager.verifyTransaction(tx)
+        if json.loads(tx.get("data")).get("type") != 2:
+            sigVerified = self.sigmanager.verifyTransaction(tx)
+        else:
+            sigVerified = True
         playableByState = self.state.willTransactionSucceed(tx)
         return (sigVerified and playableByState, sigVerified, playableByState)
         
@@ -619,6 +686,11 @@ class Node(object):
             self.syncByBlock()
             time.sleep(60)
 
+    def integrateETHTransaction(self, ethTx):
+        data = json.dumps({"rawTx": ethTx, "type": 2}).replace(" ", "")
+        _txid_ = w3.soliditySha3(["string"], [data]).hex()
+        self.checkTxs([{"data": data, "hash": _txid_}])
+        return _txid_
 
 
 # thread = threading.Thread(target=node.backgroundRoutine)
@@ -660,7 +732,7 @@ CORS(app)
 
 @app.route("/")
 def basicInfoHttp():
-    return "*ah shit I shall still name it* cryptocurrency node running on port 5005"
+    return "SiriCoin cryptocurrency node running on port 5005"
 
 @app.route("/ping")
 def getping():
@@ -816,6 +888,48 @@ def shareMyPeers():
 @app.route("/net/getOnlinePeers")
 def shareOnlinePeers():
     return flask.jsonify(result=node.goodPeers, success=True)
+
+
+
+# WEB3 COMPATIBLE RPC
+@app.route("/web3", methods=["POST"])
+def handleWeb3Request():
+    data = flask.request.get_json()
+    _id = data.get("_id")
+    print(data)
+    method = data.get("method")
+    params = data.get("params")
+    result = hex(5005)
+    if method == "eth_getBalance":
+        result = hex(int((node.state.balances.get(w3.toChecksumAddress(params[0])) or 0)*10**18))
+    if method == "net_version":
+        result = str(5005)
+    if method == "eth_coinbase":
+        result = node.state.beaconChain.getLastBeacon().miner
+    if method == "eth_mining":
+        result = False
+    if method == "eth_gasPrice":
+        result = "0x1"
+    if method == "eth_blockNumber":
+        result = hex(len(node.state.beaconChain.blocks) - 1)
+    if method == "eth_getTransactionCount":
+        result = hex(len(node.state.sent.get(params[0]) or []))
+    if method == "eth_getCode":
+        result = "0x"
+    # if method == "eth_sign":
+        # result = w3.eth.account.sign_message(encode_defunct(text=), private_key="").signature.hex()
+    if method == "eth_call":
+        result = "0x"
+    if method == "eth_getCompilers":
+        result = []
+    if method == "eth_sendRawTransaction":
+        result = node.integrateETHTransaction(params[0])
+        print(result)
+    
+        
+    return flask.Response(json.dumps({"id": _id, "jsonrpc": 2.0, "result": result}), mimetype='application/json');
+    
+
 
 print(ssl_context)
 app.run(host="0.0.0.0", port=5005, ssl_context=ssl_context)
