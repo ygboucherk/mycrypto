@@ -249,6 +249,7 @@ class State(object):
         self.txIndex = {}
         self.lastTxIndex = 0
         self.beaconChain = BeaconChain()
+        self.totalSupply = 110 # initial supply used for testing
 
 
     def getCurrentEpoch(self):
@@ -360,12 +361,13 @@ class State(object):
     def mineBlock(self, tx):
         try:
             self.ensureExistence(tx.sender)
-            self.ensureExistence(tx.blockData.get("miningData").get("miner"))
             feedback = self.beaconChain.submitBlock(tx.blockData);
             self.applyParentStuff(tx)
             # print(feedback)
             if feedback:
+                self.ensureExistence(feedback)
                 self.balances[feedback] += 50
+                self.totalSupply += 50
                 return True
             return False
         except:
