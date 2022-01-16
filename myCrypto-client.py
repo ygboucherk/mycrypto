@@ -360,6 +360,7 @@ class State(object):
     def mineBlock(self, tx):
         try:
             self.ensureExistence(tx.sender)
+            self.ensureExistence(tx.blockData.get("miningData").get("miner"))
             feedback = self.beaconChain.submitBlock(tx.blockData);
             self.applyParentStuff(tx)
             # print(feedback)
