@@ -106,7 +106,7 @@ class Transaction(object):
         if (self.txtype == 0):
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.recipient = w3.toChecksumAddress(txData.get("to"))
-            self.value = float(txData.get("tokens"))
+            self.value = max(float(txData.get("tokens")), 0)
         if (self.txtype == 1):
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.blockData = txData.get("blockData")
@@ -118,7 +118,7 @@ class Transaction(object):
             ethDecoded = decoder.decode_raw_tx(txData.get("rawTx"))
             self.sender = ethDecoded.from_
             self.recipient = ethDecoded.to
-            self.value = float(ethDecoded.value/(10**18))
+            self.value = max(float(ethDecoded.value/(10**18)), 0)
             self.nonce = ethDecoded.nonce
             self.ethData = ethDecoded.data
             self.ethTxid = ethDecoded.hash_tx
