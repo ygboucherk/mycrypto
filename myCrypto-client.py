@@ -587,10 +587,28 @@ class Node(object):
     
     
     
-    # REQUESTING DATA FROM PEERS    
+    # REQUESTING DATA FROM PEERS
+    def askForMorePeers(self):
+        for peer in self.goodPeers:
+            try:
+                obtainedPeers = requests.get(f"{peer}/net/getOnlinePeers")
+                for _peer in obtainedPeers:
+                    if not (peer in self.peers):
+                        self.peers.append(peer)
+            except:
+                pass
+    
     def checkGuys(self):
+        self.goodPeers = []
         for peer in self.peers:
-            self.goodPeers = []
+            try:
+                if (requests.get(f"{peer}/ping").json()["success"]):
+                    self.goodPeers.append(peer)
+            except:
+                pass
+        self.askForMorePeers()
+        self.goodPeers = []
+        for peer in self.peers:
             try:
                 if (requests.get(f"{peer}/ping").json()["success"]):
                     self.goodPeers.append(peer)
