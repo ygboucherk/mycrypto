@@ -15,7 +15,7 @@ try:
     config = json.load(configFile)
     configFile.close()
 except:
-    config = {"dataBaseFile": "testmycrypto-938198382.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["https://siricoin-node-1.dynamic-dns.net:5005/"], "InitTxID": "none"}
+    config = {"dataBaseFile": "testmycrypto-IHopeITllfixthistime.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["https://siricoin-node-1.dynamic-dns.net:5005/"], "InitTxID": "none"}
 
 try:
     ssl_context = tuple(config["ssl"])
@@ -345,8 +345,13 @@ class State(object):
                 tx.parent = self.sent.get(tx.sender)[tx.nonce - 1]
             except:
                 pass
-            return (tx.nonce == len(self.sent.get(tx.sender)))
+#                raise
+            try:
+                return ((self.getLastSentTx(tx.sender).nonce) == tx.nonce-1)
+            except:
+                return (tx.nonce == len(self.sent.get(tx.sender)))
         else: 
+            print(f"Tx parent : {tx.parent}\nLast tx : {lastTx}")
             return (tx.parent == lastTx)
 
     def checkBalance(self, tx):
@@ -373,14 +378,17 @@ class State(object):
 
     def willTransactionSucceed(self, tx):
         _tx = Transaction(tx)
-        underlyingOperationSuccess = False
+        underlyingOperationSuccess = (False, None)
         correctParent = self.checkParent(_tx)
         correctBeacon = self.isBeaconCorrect(_tx)
         if _tx.txtype == 0 or _tx.txtype == 2:
-            underlyingOperationSuccess = self.estimateTransferSuccess(_tx)[0]
+            underlyingOperationSuccess = self.estimateTransferSuccess(_tx)
         if _tx.txtype == 1:
-            underlyingOperationSuccess = self.estimateMiningSuccess(_tx)[0]
-        return (underlyingOperationSuccess and correctBeacon and correctParent)
+            underlyingOperationSuccess = self.estimateMiningSuccess(_tx)
+            # underlyingOperationSuccess = (True, "Better to show True")
+            
+        print(underlyingOperationSuccess, correctBeacon, correctParent)
+        return (underlyingOperationSuccess[0] and correctBeacon and correctParent)
         
 
     # def mineBlock(self, blockData):
@@ -394,6 +402,7 @@ class State(object):
             tx.parent = self.sent.get(tx.sender)[tx.nonce - 1]
             self.type2ToType0Hash[tx.ethTxid] = tx.txid
             self.type0ToType2Hash[tx.txid] = tx.ethTxid
+            print(tx.parent)
             
         self.txChilds[tx.parent].append(tx.txid)
         self.txIndex[tx.txid] = self.lastTxIndex
@@ -535,10 +544,11 @@ class Node(object):
         self.upgradeTxs()
         for txHash in self.txsOrder:
             tx = self.transactions[txHash]
-            self.state.playTransaction(tx, False)
-            self.propagateTransactions([tx])
+            if self.canBePlayed(tx)[0]:
+                self.state.playTransaction(tx, False)
+            # self.propagateTransactions([tx])
         self.saveDB()
-        self.syncByBlock()
+        self.syncDB()
         self.saveDB()
 
     def checkTxs(self, txs):
@@ -549,7 +559,7 @@ class Node(object):
         _counter = 0
         for tx in txs:
             playable = self.canBePlayed(tx)
-            # print(f"Result of canBePlayed: {playable}")
+            print(f"Result of canBePlayed for tx {tx['hash']}: {playable}")
             if (not self.transactions.get(tx["hash"]) and playable[0]):
                 self.transactions[tx["hash"]] = tx
                 self.txsOrder.append(tx["hash"])
@@ -620,27 +630,20 @@ class Node(object):
     
     def pullSetOfTxs(self, txids):
         txs = []
-        toRequestTxids = []
         for txid in txids:
-            if self.transactions.get(txid):
-                txs.append(self.transactions.get(txid))
-            else:
-                toRequestTxids.append(txid)
-                
-        for peer in self.goodPeers:
-                if len(txs) != len(txids):
+            localTx = self.transactions.get(txid)
+            if not localTx:
+                for peer in self.goodPeers:
                     try:
-                        # print(f"{peer}/get/transactions/{','.join(toRequestTxids)}")
-                        __txs = requests.get(f"{peer}/get/transactions/{','.join(toRequestTxids)}").json()["result"]
-                        for __tx in __txs:
-                            print(__tx)
-                            if not __tx in txs:
-                                txs.append(__tx)
+                        tx = requests.get(f"{peer}/get/transactions/{txid}").json()["result"][0]
+                        txs.append(tx)
+                        break
                     except:
-                        pass
-                    
-        print(txs)
+                        raise
+            else:
+                txs.append(localTx)
         return txs
+
 
     def pullChildsOfATx(self, txid):
         vwjnvfeuuqubb = self.state.txChilds.get(txid) or []
@@ -650,8 +653,8 @@ class Node(object):
                 _childs = requests.get(f"{peer}/accounts/txChilds/{txid}").json()["result"]
                 for child in _childs:
                     if not (child in children):
-                        parent = json.loads(self.pullSetOfTxs([child])[0]["data"])["parent"]
-                        if (parent == txid):
+                        pulledTxData = json.loads(self.pullSetOfTxs([child])[0]["data"])
+                        if (pulledTxData["parent"] == txid) or (pulledTxData["type"] == 2):
                             children.append(child)
                 break
             except:
@@ -739,7 +742,7 @@ class Node(object):
     
 
     def integrateETHTransaction(self, ethTx):
-        data = json.dumps({"rawTx": ethTx, "epoch": self.state.getCurrentEpoch(), "type": 2}).replace(" ", "")
+        data = json.dumps({"rawTx": ethTx, "epoch": self.state.getCurrentEpoch(), "type": 2})
         _txid_ = w3.soliditySha3(["string"], [data]).hex()
         self.checkTxs([{"data": data, "hash": _txid_}])
         return _txid_
@@ -824,7 +827,7 @@ def getTxsByBound(upperBound, lowerBound):
 @app.route("/get/txIndex/<index>")
 def getTxIndex(txid):
     _index = node.state.txIndex.get(tx)
-    if _index:
+    if _index != None:
         return flask.jsonify(result=_index, success=True)
     else:
         return (flask.jsonify(message="TX_NOT_FOUND", success=False), 404)
@@ -832,7 +835,7 @@ def getTxIndex(txid):
 @app.route("/get/transaction/<txhash>", methods=["GET"]) # get specific tx by hash
 def getTransactionByHash(txhash):
     tx = node.transactions.get(txhash)
-    if (tx):
+    if (tx != None):
         return flask.jsonify(result=tx, success=True)
     else:
         return (flask.jsonify(message="TX_NOT_FOUND", success=False), 404)
@@ -865,6 +868,11 @@ def accountInfo(account):
     nonce = len(node.state.sent.get(_address) or ["init"])
     return flask.jsonify(result={"balance": (balance or 0), "nonce": nonce, "transactions": transactions, "bio": bio}, success= True)
 
+@app.route("/accounts/sent/<account>")
+def sentByAccount(account):
+    _address = w3.toChecksumAddress(account)    
+    return flask.jsonify(result=node.state.sent.get(_address) or [], success= True)
+
 @app.route("/accounts/accountBalance/<account>")
 def accountBalance(account):
     _address = w3.toChecksumAddress(account)
@@ -874,7 +882,7 @@ def accountBalance(account):
 @app.route("/accounts/txChilds/<tx>")
 def txParent(tx):
     _kids = node.state.txChilds.get(tx)
-    if _kids:
+    if _kids != None:
         return flask.jsonify(result=_kids, success=True)
     else:
         return flask.jsonify(message="TX_NOT_FOUND", success=False)
@@ -926,7 +934,7 @@ def getlastblock():
 @app.route("/chain/miningInfo")
 def getMiningInfo():
     _result = {"difficulty" : node.state.beaconChain.difficulty, "target": node.state.beaconChain.miningTarget, "lastBlockHash": node.state.beaconChain.getLastBeacon().proof}
-    print(_result)
+    # print(_result)
     return flask.jsonify(result=_result, success=True)
 
 @app.route("/chain/length")
@@ -949,7 +957,7 @@ def shareOnlinePeers():
 def handleWeb3Request():
     data = flask.request.get_json()
     _id = data.get("_id")
-    print(data)
+    # print(data)
     method = data.get("method")
     params = data.get("params")
     result = hex(5005)
@@ -979,7 +987,7 @@ def handleWeb3Request():
         result = []
     if method == "eth_sendRawTransaction":
         result = node.integrateETHTransaction(params[0])
-        print(result)
+        # print(result)
     if method == "eth_getTransactionReceipt":
         result = node.txReceipt(params[0])
     
