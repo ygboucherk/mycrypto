@@ -15,7 +15,7 @@ try:
     config = json.load(configFile)
     configFile.close()
 except:
-    config = {"dataBaseFile": "testmycrypto-2.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["http://136.244.119.124:5005/"], "InitTxID": "none"}
+    config = {"dataBaseFile": "testmycrypto.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["https://siricoin-node-1.dynamic-dns.net:5005/"], "InitTxID": "none"}
 
 try:
     ssl_context = tuple(config["ssl"])
@@ -650,17 +650,15 @@ class Node(object):
     def pullTxsByBlockNumber(self, blockNumber):
         txs = []
         try:
-            txs = self.state.beaconChain.blocks[blockNumber].transactions.copy()
+            txs = self.state.beaconChain.blocks.get(blockNumber).transactions.copy()
         except:
             txs = []
         for peer in self.goodPeers:
             try:
-                _txs = requests.get(f"{peer}/accounts/txChilds/{txid}").json()["result"]
+                _txs = requests.get(f"{peer}/chain/block/{blockNumber}").json()["result"]["transactions"]
                 for _tx in _txs:
                     if not (_tx in txs):
-                        parent = json.loads(self.pullSetOfTxs([_tx])[0]["data"])["parent"]
-                        if (parent == txid):
-                            txs.append(_tx)
+                        txs.append(_tx)
                 break
             except:
                 pass
@@ -687,12 +685,15 @@ class Node(object):
         length = 0
         for peer in self.goodPeers:
             length = max(requests.get(f"{peer}/chain/length").json()["result"], length)
+        print(length)
         return length
     
     def syncByBlock(self):
         self.checkTxs(self.pullSetOfTxs(self.pullTxsByBlockNumber(0)))
         for blockNumber in range(self.bestBlockChecked,self.getChainLength()):
-            self.checkTxs(self.pullSetOfTxs(self.pullTxsByBlockNumber(blockNumber)))
+            _toCheck_ = self.pullSetOfTxs(self.pullTxsByBlockNumber(blockNumber))
+            print(_toCheck_)
+            self.checkTxs(_toCheck_)
             self.bestBlockChecked = blockNumber
     
     
