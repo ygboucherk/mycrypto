@@ -15,7 +15,7 @@ try:
     config = json.load(configFile)
     configFile.close()
 except:
-    config = {"dataBaseFile": "testmycrypto.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["https://siricoin-node-1.dynamic-dns.net:5005/"], "InitTxID": "none"}
+    config = {"dataBaseFile": "testmycrypto-938198382.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["https://siricoin-node-1.dynamic-dns.net:5005/"], "InitTxID": "none"}
 
 try:
     ssl_context = tuple(config["ssl"])
@@ -341,7 +341,10 @@ class State(object):
     def checkParent(self, tx):
         lastTx = self.getLastUserTx(tx.sender)
         if tx.txtype == 2:
-            tx.parent = self.sent.get(tx.sender)[tx.nonce - 1]
+            try:
+                tx.parent = self.sent.get(tx.sender)[tx.nonce - 1]
+            except:
+                pass
             return (tx.nonce == len(self.sent.get(tx.sender)))
         else: 
             return (tx.parent == lastTx)
@@ -617,18 +620,26 @@ class Node(object):
     
     def pullSetOfTxs(self, txids):
         txs = []
+        toRequestTxids = []
         for txid in txids:
-            localTx = self.transactions.get(txid)
-            if not localTx:
-                for peer in self.goodPeers:
-                    try:
-                        tx = requests.get(f"{peer}/get/transactions/{txid}").json()["result"][0]
-                        txs.append(tx)
-                        break
-                    except:
-                        raise
+            if self.transactions.get(txid):
+                txs.append(self.transactions.get(txid))
             else:
-                txs.append(localTx)
+                toRequestTxids.append(txid)
+                
+        for peer in self.goodPeers:
+                if len(txs) != len(txids):
+                    try:
+                        # print(f"{peer}/get/transactions/{','.join(toRequestTxids)}")
+                        __txs = requests.get(f"{peer}/get/transactions/{','.join(toRequestTxids)}").json()["result"]
+                        for __tx in __txs:
+                            print(__tx)
+                            if not __tx in txs:
+                                txs.append(__tx)
+                    except:
+                        pass
+                    
+        print(txs)
         return txs
 
     def pullChildsOfATx(self, txid):
@@ -692,7 +703,7 @@ class Node(object):
         self.checkTxs(self.pullSetOfTxs(self.pullTxsByBlockNumber(0)))
         for blockNumber in range(self.bestBlockChecked,self.getChainLength()):
             _toCheck_ = self.pullSetOfTxs(self.pullTxsByBlockNumber(blockNumber))
-            print(_toCheck_)
+            print(blockNumber)
             self.checkTxs(_toCheck_)
             self.bestBlockChecked = blockNumber
     
@@ -977,5 +988,5 @@ def handleWeb3Request():
     
 
 
-print(ssl_context)
+print(ssl_context or "No SSL context defined")
 app.run(host="0.0.0.0", port=5005, ssl_context=ssl_context)
