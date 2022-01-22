@@ -346,10 +346,7 @@ class State(object):
             except:
                 pass
 #                raise
-            try:
-                return ((self.getLastSentTx(tx.sender).nonce) == tx.nonce-1)
-            except:
-                return (tx.nonce == len(self.sent.get(tx.sender)))
+            return (tx.nonce == len(self.sent.get(tx.sender)))
         else: 
             print(f"Tx parent : {tx.parent}\nLast tx : {lastTx}")
             return (tx.parent == lastTx)
@@ -767,12 +764,12 @@ class TxBuilder(object):
         self.checkTxs([tx])
         return (tx, playable)
 
-
-node = Node(config)
-print(node.config)
-maker = TxBuilder(node)
-thread = threading.Thread(target=node.networkBackgroundRoutine)
-thread.start()
+if __name__ == "__main__":
+    node = Node(config)
+    print(node.config)
+    maker = TxBuilder(node)
+    thread = threading.Thread(target=node.networkBackgroundRoutine)
+    thread.start()
 
 
 
@@ -995,6 +992,6 @@ def handleWeb3Request():
     return flask.Response(json.dumps({"id": _id, "jsonrpc": "2.0", "result": result}), mimetype='application/json');
     
 
-
-print(ssl_context or "No SSL context defined")
-app.run(host="0.0.0.0", port=5005, ssl_context=ssl_context)
+if __name__ == "__main__":
+    print(ssl_context or "No SSL context defined")
+    app.run(host="0.0.0.0", port=5005, ssl_context=ssl_context)
