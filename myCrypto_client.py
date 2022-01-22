@@ -218,6 +218,7 @@ class BeaconChain(object):
         self.blocks = [GenesisBeacon()]
         self.blocksByHash = {self.blocks[0].proof: self.blocks[0]}
         self.pendingMessages = []
+        self.blockReward = 50
         self.blockTime = 1200 # in seconds, about 20 minutes
 
     def checkBeaconMessages(self, beacon):
@@ -312,6 +313,7 @@ class State(object):
         self.txIndex = {}
         self.lastTxIndex = 0
         self.beaconChain = BeaconChain()
+        self.holders = ["0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x611B74e0dFA8085a54e8707c573A588138c9dDba", "0x0000000000000000000000000000000000000000"]
         self.totalSupply = 110 # initial supply used for testing
         self.type2ToType0Hash = {}
         self.type0ToType2Hash = {}
@@ -347,13 +349,18 @@ class State(object):
                 pass
 #                raise
             return (tx.nonce == len(self.sent.get(tx.sender)))
-        else: 
-            print(f"Tx parent : {tx.parent}\nLast tx : {lastTx}")
+        else:
             return (tx.parent == lastTx)
 
     def checkBalance(self, tx):
         return tx.value > (self.balances.get(tx.sender) or 0)
 
+    def updateHolders(self):
+        _holders = []
+        for key, value in self.balances.items():
+            if value > 0:
+                _holders.append(key)
+        self.holders = _holders
 
     def estimateTransferSuccess(self, _tx):
         self.ensureExistence(_tx.sender)
@@ -384,7 +391,7 @@ class State(object):
             underlyingOperationSuccess = self.estimateMiningSuccess(_tx)
             # underlyingOperationSuccess = (True, "Better to show True")
             
-        print(underlyingOperationSuccess, correctBeacon, correctParent)
+        # print(underlyingOperationSuccess, correctBeacon, correctParent)
         return (underlyingOperationSuccess[0] and correctBeacon and correctParent)
         
 
@@ -399,7 +406,7 @@ class State(object):
             tx.parent = self.sent.get(tx.sender)[tx.nonce - 1]
             self.type2ToType0Hash[tx.ethTxid] = tx.txid
             self.type0ToType2Hash[tx.txid] = tx.ethTxid
-            print(tx.parent)
+            # print(tx.parent)
             
         self.txChilds[tx.parent].append(tx.txid)
         self.txIndex[tx.txid] = self.lastTxIndex
@@ -446,14 +453,13 @@ class State(object):
             # print(feedback)
             if feedback:
 #                self.ensureExistence(feedback)
-                self.balances[feedback] += 50
-                self.totalSupply += 50
+                self.balances[feedback] += self.beaconChain.blockReward
+                self.totalSupply += self.beaconChain.blockReward
                 return True
             return False
         except:
             raise
             return False
-
 
     def playTransaction(self, tx, showMessage):
         _tx = Transaction(tx)
@@ -470,6 +476,7 @@ class State(object):
             self.accountBios[_tx.sender] = _tx.bio.replace("%20", " ")
         # if _tx.message:
             # self.leaveMessage(_from, _to, msg, showMessage)
+        self.updateHolders()
         return feedback
 
     def getLastUserTx(self, _user):
@@ -556,7 +563,7 @@ class Node(object):
         _counter = 0
         for tx in txs:
             playable = self.canBePlayed(tx)
-            print(f"Result of canBePlayed for tx {tx['hash']}: {playable}")
+            # print(f"Result of canBePlayed for tx {tx['hash']}: {playable}")
             if (not self.transactions.get(tx["hash"]) and playable[0]):
                 self.transactions[tx["hash"]] = tx
                 self.txsOrder.append(tx["hash"])
@@ -789,6 +796,11 @@ def basicInfoHttp():
 @app.route("/ping")
 def getping():
     return json.dumps({"result": "Pong !", "success": True})
+
+@app.route("/stats")
+def getStats():
+    _stats_ = {"coin": {"transactions": len(node.txsOrder), "supply": node.state.totalSupply, "holders": len(node.state.holders)}, "chain" : {"length": len(node.state.beaconChain.blocks), "difficulty" : node.state.beaconChain.difficulty, "target": node.state.beaconChain.miningTarget, "lastBlockHash": node.state.beaconChain.getLastBeacon().proof}}
+    return flask.jsonify(result=_stats_, success=True)
 
 # HTTP GENERAL GETTERS - pulled from `Node` class
 @app.route("/get/transactions", methods=["GET"]) # get all transactions in node
