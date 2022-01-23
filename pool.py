@@ -67,7 +67,7 @@ class Pool(object):
             self.accounts[_address] = self.Account({"address": _address, "paid": 0, "unpaid": 0, "shares": []})
     
     
-    def dumpAccounts():
+    def dumpAccounts(self):
         acctsJSON = {}
         for key, value in self.accounts.items():
             acctsJSON[key] = value.dumpJSON()
@@ -131,7 +131,7 @@ class Pool(object):
         self.accounts.get(_to).unpaid = 0
         self.accounts.get(_to).paid += tokens
         self.saveDB()
-        return (tokens, requests.get(f"{self.node}/send/buildtransaction/?privkey={self.privkey}&from={self.address}&to={_to}&value={tokens}").json().get("result"))
+        return (tokens, self.requests.get(f"{self.node}/send/buildtransaction/?privkey={self.privkey}&from={self.address}&to={_to}&value={tokens}").json().get("result"))
         
 
 pool = Pool(sys.argv[1], sys.argv[2])
