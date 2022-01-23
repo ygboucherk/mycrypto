@@ -1,5 +1,5 @@
 class Client:
-    def __init__(self, NodeAddr):
+    def __init__(self, NodeAddr, *, privkey=None):
         # self.chain = BeaconChain()
         import importlib
         import hashlib
@@ -15,7 +15,7 @@ class Client:
         self.difficulty = 1
         self.target = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         self.lastBlock = ""
-        self.priv_key = hashlib.sha256(b"SiriCoin Will go to MOON - Just a disposable key").hexdigest()
+        self.priv_key = privkey or hashlib.sha256(b"SiriCoin Will go to MOON - Just a disposable key").hexdigest()
         self.address = Account().from_key(self.priv_key).address
         _txs = self.requests.get(f"{self.node}/accounts/accountInfo/{self.address}").json().get("result").get("transactions")
         self.lastSentTx = _txs[len(_txs)-1]

@@ -36,7 +36,7 @@ class Pool(object):
         from importlib import import_module
         from eth_account.account import Account
         self.node = NodeAddress
-        self.client = getattr(import_module("miningClient"), "Client")(NodeAddress)
+        self.client = getattr(import_module("miningClient"), "Client")(NodeAddress, privkey=privkey)
         self.w3 = getattr(import_module("web3.auto"), "w3")
         self.json = import_module("json")
         self.time = import_module("time")
