@@ -61,3 +61,5 @@ class Client:
     
     def buildBlock(self, miner, nonce, timestamp, proof):
         return {"transactions": [],"messages": "6e756c6c","parent": self.lastBlock,"son": None,"timestamp": timestamp,"miningData": {"miner": miner,"nonce": nonce,"difficulty": self.difficulty,"miningTarget": self.miningTarget,"proof": proof}}
+        
+        

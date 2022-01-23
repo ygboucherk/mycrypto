@@ -763,7 +763,7 @@ class TxBuilder(object):
     def buildTransaction(self, priv_key, _from, _to, tokens):
         from_ = w3.toChecksumAddress(_from)
         to_ = w3.toChecksumAddress(_to)
-        data = json.dumps({"from": from_, "to": to_, "tokens": tokens, "parent": self.state.getLastSentTx(_from), "type": 0})
+        data = json.dumps({"from": from_, "to": to_, "tokens": tokens, "parent": self.state.getLastUserTx(_from), "type": 0})
         tx = {"data": data}
         tx = self.signer.signTransaction(priv_key, tx)
 #        print(tx)
