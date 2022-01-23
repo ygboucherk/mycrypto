@@ -911,6 +911,7 @@ def sendRawTransactions():
         txs.append(tx)
         hashes.append(tx["hash"])
     node.checkTxs(txs)
+    node.propagateTransactions(txs)
     return flask.jsonify(result=hashes, success=True)
 
 @app.route("/send/buildtransaction/")

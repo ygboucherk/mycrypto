@@ -40,6 +40,7 @@ class Pool(object):
         self.w3 = getattr(import_module("web3.auto"), "w3")
         self.json = import_module("json")
         self.time = import_module("time")
+        self.requests = import_module("requests")
         self.signer = getattr(import_module("myCrypto_client"), "SignatureManager")()
         self.minedHashes = []
         

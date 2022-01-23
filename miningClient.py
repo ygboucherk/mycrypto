@@ -31,7 +31,7 @@ class Client:
     
     def submitBlock(self, blockData):
         self.refresh()
-        data = json.dumps({"from": self.address, "to": self.address, "tokens": 0, "parent": self.lastSentTx, "blockData": blockData, "epoch": self.lastBlock, "type": 1})
+        data = json.dumps({"from": self.address, "to": self.address, "tokens": 0, "parent": self.lastSentTx, "blockData": blockData, "epoch": self.lastBlock, "type": 1}).replace(" ", "")
         tx = {"data": data}
         tx = signer.signTransaction(self.priv_key, tx)
 #        print(tx)
