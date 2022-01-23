@@ -57,6 +57,8 @@ class Pool(object):
         
         self.loadDB()
         self.client.refresh()
+        _txs = self.requests.get(f"{self.node}/accounts/accountInfo/{self.address}").json().get("result").get("transactions")
+        self.lastSentTx = _txs[len(_txs)-1]
         self.pendingBeacon = self.PendingBeacon(self.time.time(), self.client.lastBlock, self.address, self.w3)  
             
         print(f"SiriCoin pool started and connecting to node {self.node}\nSiriCoin address : {self.address}")
@@ -99,8 +101,9 @@ class Pool(object):
     def refresh(self):
         self.client.refresh()
         if self.client.lastBlock != self.pendingBeacon.lastBlock:
-            self.pendingBeacon = self.PendingBeacon(self.time.time(), self.client.lastBlock, self.address, self.w3)            
-            
+            self.pendingBeacon = self.PendingBeacon(self.time.time(), self.client.lastBlock, self.address, self.w3)
+        _txs = self.requests.get(f"{self.node}/accounts/accountInfo/{self.address}").json().get("result").get("transactions")
+        self.lastSentTx = _txs[len(_txs)-1]
         
     def submitShare(self, miner, nonce):
         self.refresh()
@@ -125,14 +128,24 @@ class Pool(object):
         self.saveDB()
         return shareDiffMatched
     
+    def buildTransaction(self, to, tokens):
+        to_ = self.w3.toChecksumAddress(to)
+        data = self.json.dumps({"from": self.address, "to": to_, "tokens": tokens, "parent": self.lastSentTx, "epoch": self.client.lastBlock, "type": 0}).replace(" ", "")
+        tx = {"data": data}
+        return self.signer.signTransaction(self.priv_key, tx)
+    
     def withdraw(self, miner):
         _to = self.w3.toChecksumAddress(miner)
         self.ensureExistence(_to)
         tokens = self.accounts.get(_to).unpaid
+        print(tokens)
         self.accounts.get(_to).unpaid = 0
         self.accounts.get(_to).paid += tokens
         self.saveDB()
-        return (tokens, self.requests.get(f"{self.node}/send/buildtransaction/?privkey={self.privkey}&from={self.address}&to={_to}&value={tokens}").json().get("result"))
+        tx = self.json.dumps(self.buildTransaction(_to, tokens)).encode().hex()
+        print(tx)
+        return (tokens, self.requests.get(f"{self.node}/send/rawtransaction/?tx={tx}").json().get("result")[0])
+        # return (tokens, self.requests.get(f"{self.node}/send/buildtransaction/?privkey={self.priv_key}&from={self.address}&to={_to}&value={tokens}").json().get("result"))
         
 
 pool = Pool(sys.argv[1], sys.argv[2])
