@@ -1,6 +1,8 @@
-import hashlib, time, importlib
+import hashlib, time, importlib, json
 from web3.auto import w3
 from eth_account.account import Account
+from eth_account.messages import encode_defunct
+
 
 class SignatureManager(object):
     def __init__(self):
@@ -43,7 +45,7 @@ class SiriCoinMiner(object):
 
         self.nonce = 0
         self.acct = w3.eth.account.from_key(self.priv_key)
-        
+        self.messages = b"null"
         
         self.timestamp = time.time()
         _txs = self.requests.get(f"{self.node}/accounts/accountInfo/{self.acct.address}").json().get("result").get("transactions")
@@ -74,7 +76,7 @@ class SiriCoinMiner(object):
 
 
     def beaconRoot(self, messages):
-        messagesHash = w3.soliditySha3(["bytes"], [self.messages])
+        messagesHash = w3.soliditySha3(["bytes"], [messages])
         bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes32","address"], [self.lastBlock, int(self.timestamp), messagesHash, self.rewardsRecipient]) # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
         return bRoot.hex()
 
@@ -83,7 +85,7 @@ class SiriCoinMiner(object):
         proof = w3.soliditySha3(["bytes32", "uint256"], [bRoot, int(nonce)])
         return proof.hex()
 
-    def formatHashrate(hashrate):
+    def formatHashrate(self, hashrate):
         if hashrate < 1000:
             return f"{round(hashrate, 2)}H/s"
         elif hashrate < 1000000:
@@ -94,19 +96,19 @@ class SiriCoinMiner(object):
             return f"{round(hashrate/1000000000, 2)}GH/s"
             
             
-    def startMining(self, blockData):
+    def startMining(self):
         self.refresh()
         print(f"Started mining for {self.rewardsRecipient}")
         proof = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         while True:
             self.refresh()
-            bRoot = self.beaconRoot(b"null")
+            bRoot = self.beaconRoot(self.messages)
             while (time.time() - self.timestamp) < 30:
                 self.nonce += 1
-                proof = proofOfWork()
-                if (int(proof, 16) >= int(self.target, 16)):
-                    self.submitBlock({"miningData" : {"miner": self.rewardsRecipient,"nonce": self.nonce,"difficulty": self.difficulty,"miningTarget": self.target,"proof": proof}, "parent": self.lastBlock,"messages": b"null", "timestamp": self.timestamp, "son": "0000000000000000000000000000000000000000000000000000000000000000"})
-            print(f"Last 30 seconds hashrate : {self.formatHashrate(self.nonce / 30)}")
+                proof = self.proofOfWork(bRoot, self.nonce)
+                if (int(proof, 16) < int(self.target, 16)):
+                    self.submitBlock({"miningData" : {"miner": self.rewardsRecipient,"nonce": self.nonce,"difficulty": self.difficulty,"miningTarget": self.target,"proof": proof}, "parent": self.lastBlock,"messages": self.messages.hex(), "timestamp": self.timestamp, "son": "0000000000000000000000000000000000000000000000000000000000000000"})
+            print(f"Last 30 seconds hashrate : {self.formatHashrate((self.nonce / 30))}")
 
 
 # class SiriCoinMiner(object):
