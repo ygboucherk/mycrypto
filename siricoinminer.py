@@ -96,6 +96,7 @@ class SiriCoinMiner(object):
             
     def startMining(self, blockData):
         self.refresh()
+        print(f"Started mining for {self.rewardsRecipient}")
         proof = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         while True:
             self.refresh()
@@ -104,7 +105,7 @@ class SiriCoinMiner(object):
                 self.nonce += 1
                 proof = proofOfWork()
                 if (int(proof, 16) >= int(self.target, 16)):
-                    self.submitBlock({"miningData" : {"miner": self.acct.address,"nonce": self.nonce,"difficulty": self.difficulty,"miningTarget": self.target,"proof": proof}, "parent": self.lastBlock,"messages": b"null", "timestamp": self.timestamp, "son": "0000000000000000000000000000000000000000000000000000000000000000"})
+                    self.submitBlock({"miningData" : {"miner": self.rewardsRecipient,"nonce": self.nonce,"difficulty": self.difficulty,"miningTarget": self.target,"proof": proof}, "parent": self.lastBlock,"messages": b"null", "timestamp": self.timestamp, "son": "0000000000000000000000000000000000000000000000000000000000000000"})
             print(f"Last 30 seconds hashrate : {self.formatHashrate(self.nonce / 30)}")
 
 
@@ -115,5 +116,5 @@ class SiriCoinMiner(object):
         # self.miningTarget
 if __name__ == "__main__":
     minerAddr = input("Enter your SiriCoin address : ")
-    miner = SiriCoinMiner("https://siricoin-node-1.dynamic-dns.net/", minerAddr)
+    miner = SiriCoinMiner("https://siricoin-node-1.dynamic-dns.net:5005/", minerAddr)
     miner.startMining()
