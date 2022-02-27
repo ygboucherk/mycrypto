@@ -552,7 +552,7 @@ class Node(object):
                 self.state.playTransaction(tx, False)
             # self.propagateTransactions([tx])
         self.saveDB()
-        self.syncDB()
+        self.syncByBlock()
         self.saveDB()
 
     def checkTxs(self, txs):
@@ -568,6 +568,7 @@ class Node(object):
                 self.transactions[tx["hash"]] = tx
                 self.txsOrder.append(tx["hash"])
                 self.state.playTransaction(tx, True)
+                self.propagateTransactions([tx])
                 _counter += 1
                 print(f"Successfully saved transaction {tx['hash']}")
         if _counter > 0:
