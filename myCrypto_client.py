@@ -147,10 +147,17 @@ class GenesisBeacon(object):
         self.proof = self.proofOfWork()
         self.transactions = []
         self.number = 0
+        self.version = 1
+        self.parentTxRoot = None
         
     def beaconRoot(self):
         messagesHash = w3.soliditySha3(["bytes"], [self.messages])
         bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes","address"], [self.parent, self.timestamp, messagesHash, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
+        return bRoot.hex()
+
+    def beaconRootV2(self):
+        messagesHash = w3.soliditySha3(["bytes"], [self.messages])
+        bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes32", "bytes32","address"], [self.parent, int(self.timestamp), messagesHash, self.parentTxRoot, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
         return bRoot.hex()
 
     def proofOfWork(self):
@@ -160,6 +167,9 @@ class GenesisBeacon(object):
 
     def difficultyMatched(self):
         return int(self.proofOfWork(), 16) < self.miningTarget
+
+    def txsRoot(self):
+        return w3.solidityKeccak(["bytes32"], [sorted(self.transactions)])
 
     def exportJson(self):
         return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
@@ -190,6 +200,8 @@ class Beacon(object):
         self.proof = self.proofOfWork()
         self.number = 0
         self.son = ""
+        self.version = data.get("version", 1)
+        self.parentTxRoot = data.get("parentTxRoot", None)
     
               
     def beaconRoot(self):
@@ -197,8 +209,13 @@ class Beacon(object):
         bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes32","address"], [self.parent, int(self.timestamp), messagesHash, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
         return bRoot.hex()
 
+    def beaconRootV2(self):
+        messagesHash = w3.soliditySha3(["bytes"], [self.messages])
+        bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes32", "bytes32","address"], [self.parent, int(self.timestamp), messagesHash, self.parentTxRoot, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
+        return bRoot.hex()
+
     def proofOfWork(self):
-        bRoot = self.beaconRoot()
+        bRoot = self.beaconRoot() if (self.version == 1) else self.beaconRootV2()
 #        print(f"Beacon root : {bRoot}")
         proof = w3.soliditySha3(["bytes32", "uint256"], [bRoot, int(self.nonce)])
         return proof.hex()
@@ -207,6 +224,9 @@ class Beacon(object):
 #        print(self.proofOfWork())
 #        print(self.miningTarget)
         return int(self.proofOfWork(), 16) < int(self.miningTarget, 16)
+
+    def txsRoot(self):
+        return w3.solidityKeccak(["bytes32"], [sorted(self.transactions)])
 
     def exportJson(self):
         return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
