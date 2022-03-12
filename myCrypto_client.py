@@ -169,7 +169,7 @@ class GenesisBeacon(object):
         return int(self.proofOfWork(), 16) < self.miningTarget
 
     def txsRoot(self):
-        return w3.solidityKeccak(["bytes32"], [sorted(self.transactions)])
+        return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
 
     def exportJson(self):
         return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
@@ -189,6 +189,7 @@ class Beacon(object):
     
     def __init__(self, data, difficulty):
         miningData = data["miningData"]
+        self.version = data.get("version", 1)
         self.miner = w3.toChecksumAddress(miningData["miner"])
         self.nonce = miningData["nonce"]
         self.difficulty = difficulty
@@ -200,7 +201,6 @@ class Beacon(object):
         self.proof = self.proofOfWork()
         self.number = 0
         self.son = ""
-        self.version = data.get("version", 1)
         self.parentTxRoot = data.get("parentTxRoot", None)
     
               
@@ -226,10 +226,10 @@ class Beacon(object):
         return int(self.proofOfWork(), 16) < int(self.miningTarget, 16)
 
     def txsRoot(self):
-        return w3.solidityKeccak(["bytes32"], [sorted(self.transactions)])
+        return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
 
     def exportJson(self):
-        return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
+        return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent, "son": self.son, "parentTxRoot": self.parentTxRoot, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
 
 class BeaconChain(object):
     def __init__(self):
@@ -240,6 +240,7 @@ class BeaconChain(object):
         self.pendingMessages = []
         self.blockReward = 50
         self.blockTime = 1200 # in seconds, about 20 minutes
+        self.STIUpgradeBlock = 2000
 
     def checkBeaconMessages(self, beacon):
         _messages = beacon.messages.decode().split(",")
@@ -261,12 +262,16 @@ class BeaconChain(object):
             return (False, "UNMATCHED_DIFFICULTY")
         if ((int(beacon.timestamp) < _lastBeacon.timestamp) or (beacon.timestamp > time.time())):
             return (False, "INVALID_TIMESTAMP")
+        if ((len(self.beacons) < self.STIUpgradeBlock) or (beacon.parentTxRoot == self.beacons[len(self.beacons)-1].txsRoot())):
+            return (False, "STI_UPGRADE_UNMATCHED")
         return (True, "GOOD")
     
     
     def isBlockValid(self, blockData):
         try:
-            return self.isBeaconValid(Beacon(blockData, self.difficulty))
+            _blockValid = self.isBeaconValid(Beacon(blockData, self.difficulty))
+            print(_blockValid)
+            return _blockValid
         except Exception as e:
             return (False, e)
     
