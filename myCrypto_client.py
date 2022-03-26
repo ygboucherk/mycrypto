@@ -172,7 +172,7 @@ class GenesisBeacon(object):
         return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
 
     def exportJson(self):
-        return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
+        return {"transactions": self.transactions, "messages": self.messages.hex(), "txsRoot": self.txsRoot(), "parent": self.parent.hex(), "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
 
 
 class Beacon(object):
@@ -229,7 +229,7 @@ class Beacon(object):
         return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
 
     def exportJson(self):
-        return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent, "son": self.son, "parentTxRoot": self.parentTxRoot, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
+        return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent, "son": self.son, "txsRoot": self.txsRoot(), "parentTxRoot": self.parentTxRoot, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
 
 class BeaconChain(object):
     def __init__(self):
@@ -252,6 +252,9 @@ class BeaconChain(object):
     def calcDifficulty(self, expectedDelay, timestamp1, timestamp2, currentDiff):
         return min(max((currentDiff * expectedDelay)/max((timestamp2 - timestamp1), 1), currentDiff * 0.9, 1), currentDiff*1.1)
     
+    def STIenabled(self):
+        return (len(self.beacons) >= self.STIUpgradeBlock)
+    
     def isBeaconValid(self, beacon):
         _lastBeacon = self.getLastBeacon()
         if _lastBeacon.proof != beacon.parent:
@@ -262,7 +265,7 @@ class BeaconChain(object):
             return (False, "UNMATCHED_DIFFICULTY")
         if ((int(beacon.timestamp) < _lastBeacon.timestamp) or (beacon.timestamp > time.time())):
             return (False, "INVALID_TIMESTAMP")
-        if ((len(self.beacons) < self.STIUpgradeBlock) or (beacon.parentTxRoot == self.beacons[len(self.beacons)-1].txsRoot())):
+        if ((not self.STIenabled()) or (beacon.parentTxRoot == self.beacons[len(self.beacons)-1].txsRoot())):
             return (False, "STI_UPGRADE_UNMATCHED")
         return (True, "GOOD")
     
