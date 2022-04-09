@@ -840,16 +840,16 @@ def getTransactions():
 def nFirstTxs(n):
     _n = min(len(node.txsOrder), n)
     txs = []
-    for txid in txsOrder[0,n-1]:
+    for txid in node.txsOrder[0,n-1]:
         txs.append(node.transactions.get(txid))
     return flask.jsonify(result=txs, success=True)
     
 @app.route("/get/nLastTxs/<n>", methods=["GET"]) # GET N last transactions
 def nLastTxs(n):
-    _n = min(len(node.txsOrder), n)
+    _n = min(len(node.txsOrder), int(n))
     _n = len(node.txsOrder)-_n
     txs = []
-    for txid in txsOrder[_n,len(node.txsOrder)]:
+    for txid in node.txsOrder[_n,len(node.txsOrder)]:
         txs.append(node.transactions.get(txid))
         
     return flask.jsonify(result=txs, success=True)
