@@ -268,7 +268,7 @@ class BeaconChain(object):
         self.miningTarget = hex(int(min(int((2**256-1)/self.difficulty),0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)))
         return True
     
-    def submitBlock(self, block):
+    def submitBlock(self, block, showMessage):
         # print(block)
         try:
             _beacon = Beacon(block, self.difficulty)
@@ -279,6 +279,8 @@ class BeaconChain(object):
         # print(beaconValidity)
         if beaconValidity[0]:
             self.addBeaconToChain(_beacon)
+            if showMessage:
+                print(f"Block mined !\nHeight : {_beacon.number}\nMiner : {_beacon.miner}\nReward : {self.blockReward} SiriCoins")
             return _beacon.miner
         return False
     
@@ -445,16 +447,18 @@ class State(object):
     def postMessage(self, msg, showMessage):
         pass # still under development
 
-    def mineBlock(self, tx):
+    def mineBlock(self, tx, showMessage):
         try:
             self.ensureExistence(tx.sender)
-            feedback = self.beaconChain.submitBlock(tx.blockData);
+            feedback = self.beaconChain.submitBlock(tx.blockData, showMessage);
             self.applyParentStuff(tx)
             # print(feedback)
             if feedback:
 #                self.ensureExistence(feedback)
                 self.balances[feedback] += self.beaconChain.blockReward
                 self.totalSupply += self.beaconChain.blockReward
+                # if showMessage:
+                    # print(f"Block mined !\nMiner : {feedback}\nReward : {self.beaconChain.blockReward} SiriCoins")
                 return True
             return False
         except:
@@ -467,7 +471,7 @@ class State(object):
         if _tx.txtype == 0:
             feedback = self.executeTransfer(_tx, showMessage)
         if _tx.txtype == 1:
-            feedback = self.mineBlock(_tx)
+            feedback = self.mineBlock(_tx, showMessage)
         if _tx.txtype == 2:
             feedback = self.executeTransfer(_tx, showMessage)
         
@@ -792,7 +796,7 @@ CORS(app)
 
 @app.route("/")
 def basicInfoHttp():
-    return "SiriCoin cryptocurrency node running on port 5005"
+    return "SiriCoin cryptocurrency mainnet running on port 5005"
 
 @app.route("/ping")
 def getping():
@@ -810,18 +814,18 @@ def getTransactions():
 
 @app.route("/get/nFirstTxs/<n>", methods=["GET"]) # GET N first transactions
 def nFirstTxs(n):
-    _n = min(len(node.txsOrder), n)
+    _n = min(len(node.txsOrder), int(n))
     txs = []
-    for txid in txsOrder[0,n-1]:
+    for txid in node.txsOrder[0:_n-1]:
         txs.append(node.transactions.get(txid))
     return flask.jsonify(result=txs, success=True)
     
 @app.route("/get/nLastTxs/<n>", methods=["GET"]) # GET N last transactions
 def nLastTxs(n):
-    _n = min(len(node.txsOrder), n)
+    _n = min(len(node.txsOrder), int(n))
     _n = len(node.txsOrder)-_n
     txs = []
-    for txid in txsOrder[_n,len(node.txsOrder)]:
+    for txid in node.txsOrder[_n:len(node.txsOrder)]:
         txs.append(node.transactions.get(txid))
         
     return flask.jsonify(result=txs, success=True)
